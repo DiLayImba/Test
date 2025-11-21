@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -62,6 +63,7 @@
         const Loader2 = ({ className, ...props }) => <IconWrapper className={`animate-spin ${className}`} {...props}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></IconWrapper>;
         const RotateCcw = (props) => <IconWrapper {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></IconWrapper>;
         const WifiOff = (props) => <IconWrapper {...props}><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></IconWrapper>;
+        const LinkIcon = (props) => <IconWrapper {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></IconWrapper>;
 
         // --- CONSTANTS & TYPES ---
         const PlayerColor = {
@@ -193,6 +195,13 @@
                             {x: carrier.x, y: carrier.y, w: 10, h: 10}, 
                             {x: PEN_RECT.x, y: PEN_RECT.y, w: PEN_RECT.w, h: PEN_RECT.h}
                         );
+                        
+                        // If carrier is in pen, sheep is NOT instantly safe unless dropped.
+                        // But for smoother gameplay, let's say if carrier enters pen, sheep is safe?
+                        // No, user prompt said "berut i perenosyat".
+                        // Let's stick to mechanics: must drop to save.
+                        
+                        // If dropped in pen, handled by action release logic above + next frame check below
                         
                         return { ...sheep, x: carrier.x, y: carrier.y - 10, vx: 0, vy: 0 };
                     } else {
@@ -467,6 +476,7 @@
             const [hostIdInput, setHostIdInput] = useState('');
             const [joinError, setJoinError] = useState('');
             const [isConnecting, setIsConnecting] = useState(false);
+            const [statusMsg, setStatusMsg] = useState('');
 
             const gameStateRef = useRef(JSON.parse(JSON.stringify(INITIAL_GAME_STATE)));
             const [renderedGameState, setRenderedGameState] = useState(INITIAL_GAME_STATE);
@@ -482,6 +492,13 @@
             const keysPressed = useRef(new Set());
 
             useEffect(() => {
+                // Check for URL param "host" to auto-fill or auto-join
+                const params = new URLSearchParams(window.location.search);
+                const hostParam = params.get('host');
+                if (hostParam) {
+                    setHostIdInput(hostParam);
+                }
+
                 return () => {
                     if (peerRef.current) peerRef.current.destroy();
                     if (requestRef.current) cancelAnimationFrame(requestRef.current);
@@ -490,10 +507,20 @@
 
             const initializePeer = async () => {
                 return new Promise((resolve, reject) => {
-                    // Reverting to default configuration (no manual iceServers)
-                    // This allows PeerJS to use its own defaults which are often more robust for basic P2P
+                    setStatusMsg('Initializing Network...');
+                    
+                    // ROBUST CONFIGURATION FOR NAT TRAVERSAL
                     const newPeer = new window.Peer({
-                        debug: 2 // Level 2 for warnings/errors
+                        debug: 1,
+                        config: {
+                            iceServers: [
+                                { urls: 'stun:stun.l.google.com:19302' },
+                                { urls: 'stun:stun1.l.google.com:19302' },
+                                { urls: 'stun:stun2.l.google.com:19302' },
+                                { urls: 'stun:stun3.l.google.com:19302' },
+                                { urls: 'stun:stun4.l.google.com:19302' },
+                            ]
+                        }
                     });
                     
                     newPeer.on('open', (id) => {
@@ -505,12 +532,17 @@
 
                     newPeer.on('error', (err) => {
                         console.error('Peer error:', err);
-                        let errMsg = `Connection error: ${err.type}`;
+                        let errMsg = `Error: ${err.type}`;
                         if (err.type === 'peer-unavailable') {
-                            errMsg = "Host ID not found. Check if the ID is correct and the Host is online.";
+                            errMsg = "Host not found. Please check the ID and ensure Host is online.";
+                        } else if (err.type === 'network') {
+                            errMsg = "Network error. Check your internet connection.";
+                        } else if (err.type === 'browser-incompatible') {
+                             errMsg = "Browser not compatible. Try Chrome or Firefox.";
                         }
                         setJoinError(errMsg);
                         setIsConnecting(false);
+                        setStatusMsg('');
                     });
 
                     newPeer.on('connection', (conn) => {
@@ -608,6 +640,7 @@
                 if (!playerName || !selectedColor || !hostIdInput) return;
                 setIsConnecting(true);
                 setJoinError('');
+                setStatusMsg('Connecting to server...');
 
                 try {
                     const peer = await initializePeer();
@@ -617,13 +650,26 @@
 
                     console.log("Connecting to host ID:", hostIdInput);
                     
-                    // Using reliable: true creates a more stable connection over TCP
-                    const conn = peer.connect(hostIdInput, {
-                        reliable: true
-                    });
+                    // Standard connection (reliable false is default and often safer for compatibility)
+                    const conn = peer.connect(hostIdInput);
                     
+                    if (!conn) {
+                        throw new Error("Connection failed to initialize");
+                    }
+
+                    // Setup connection timeout watchdog
+                    const connectionTimeout = setTimeout(() => {
+                        if (!conn.open) {
+                            setJoinError("Connection timed out. Host might be behind a firewall or offline.");
+                            setIsConnecting(false);
+                            conn.close();
+                        }
+                    }, 15000); // 15 seconds timeout
+
                     conn.on('open', () => {
+                        clearTimeout(connectionTimeout);
                         console.log("Connection established with host");
+                        setStatusMsg('Connected! Logging in...');
                         connectionsRef.current.set(hostIdInput, conn);
                         conn.send({ 
                             type: 'JOIN_REQUEST', 
@@ -636,7 +682,10 @@
                             gameStateRef.current = data.payload;
                             setRenderedGameState({...data.payload});
                             
-                            if (mode === 'MENU') setMode('LOBBY');
+                            if (mode === 'MENU') {
+                                setMode('LOBBY');
+                                setIsConnecting(false);
+                            }
 
                             if (data.payload.gameStatus === 'PLAYING' && mode !== 'GAME') {
                                 setMode('GAME');
@@ -649,8 +698,9 @@
                     });
 
                     conn.on('error', (err) => {
+                        clearTimeout(connectionTimeout);
                         console.error("Connection error:", err);
-                        setJoinError(`Error: ${err}`);
+                        setJoinError(`Connection Error: ${err}`);
                         setMode('MENU');
                         setIsConnecting(false);
                     });
@@ -659,16 +709,6 @@
                         alert("Disconnected from host");
                         window.location.reload();
                     });
-
-                    // Watchdog for stuck connections
-                    setTimeout(() => {
-                        const c = connectionsRef.current.get(hostIdInput);
-                        if (!c || !c.open) {
-                            setJoinError("Connection taking too long. Try checking the Host ID or try again.");
-                            setIsConnecting(false);
-                            // Don't destroy peer immediately, give it a chance for next try
-                        }
-                    }, 10000);
 
                 } catch (e) {
                     console.error(e);
@@ -793,6 +833,12 @@
                 };
             }, []);
 
+            const copyInviteLink = () => {
+                const url = `${window.location.protocol}//${window.location.host}${window.location.pathname}?host=${myPeerId}`;
+                navigator.clipboard.writeText(url);
+                alert("Invite link copied! Send it to your friends.");
+            };
+
             if (mode === 'MENU') {
                 return (
                     <div className="min-h-screen bg-stone-100 flex items-center justify-center p-4">
@@ -832,7 +878,7 @@
                             {isConnecting ? (
                                 <div className="flex flex-col items-center py-4 text-green-600 gap-2">
                                     <Loader2 className="animate-spin" size={32} />
-                                    <span className="text-sm text-stone-500">Connecting to P2P Network...</span>
+                                    <span className="text-sm text-stone-500">{statusMsg}</span>
                                 </div>
                             ) : (
                                 <>
@@ -887,12 +933,20 @@
                         <h2 className="text-3xl font-bold text-stone-800 mb-6 text-center">Lobby</h2>
                         
                         {isHost && (
-                            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200 flex flex-col items-center gap-2">
-                            <span className="text-blue-800 font-medium">Share this Host ID with friends:</span>
-                            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded border border-blue-200">
-                                <code className="text-lg font-mono font-bold select-all">{myPeerId}</code>
-                                <button onClick={() => navigator.clipboard.writeText(myPeerId)} className="text-blue-500 hover:text-blue-700"><Copy size={18}/></button>
-                            </div>
+                            <div className="mb-6 space-y-3">
+                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 flex flex-col items-center gap-2">
+                                    <span className="text-blue-800 font-medium">Share this Host ID:</span>
+                                    <div className="flex items-center gap-2 bg-white px-4 py-2 rounded border border-blue-200 w-full max-w-md">
+                                        <code className="text-sm font-mono font-bold select-all truncate flex-1">{myPeerId}</code>
+                                        <button onClick={() => navigator.clipboard.writeText(myPeerId)} className="text-blue-500 hover:text-blue-700 p-1"><Copy size={18}/></button>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={copyInviteLink}
+                                    className="w-full py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors"
+                                >
+                                    <LinkIcon size={18}/> Copy Invite Link
+                                </button>
                             </div>
                         )}
 
