@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sheep Herder Co-op</title>
+    <title>Police Escape Co-op</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- React & ReactDOM (UMD) -->
@@ -24,6 +24,7 @@
         background-color: #1c1917; /* stone-900 */
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         touch-action: none; /* Prevent pull-to-refresh on mobile */
+        user-select: none;
       }
       ::-webkit-scrollbar { width: 8px; }
       ::-webkit-scrollbar-track { background: #f1f1f1; }
@@ -64,6 +65,7 @@
         const RotateCcw = (props) => <IconWrapper {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></IconWrapper>;
         const WifiOff = (props) => <IconWrapper {...props}><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></IconWrapper>;
         const LinkIcon = (props) => <IconWrapper {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></IconWrapper>;
+        const ShieldAlert = (props) => <IconWrapper {...props}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></IconWrapper>;
 
         // --- CONSTANTS & TYPES ---
         const PlayerColor = {
@@ -75,18 +77,28 @@
 
         const CANVAS_WIDTH = 1200;
         const CANVAS_HEIGHT = 800;
-        const PLAYER_SPEED = 5;
-        const SHEEP_SPEED = 2.5;
-        const SHEEP_FLEE_RADIUS = 200;
-        const PEN_RECT = { x: 50, y: 50, w: 250, h: 200 };
+        const PLAYER_SPEED = 6;
+        const PLAYER_RADIUS = 15;
+        
+        // Police Constants
+        const POLICE_RADIUS = 16;
+        const POLICE_SPAWN_RATE = 5000; // ms
+        const POLICE_BASE_SPEED_RATIO = 0.4;
+        const POLICE_MAX_SPEED_RATIO = 0.8;
+        const POLICE_SPEED_GROWTH_INTERVAL = 5000;
+        
+        // Combat Constants
+        const ATTACK_RADIUS = 70;
+        const ATTACK_COOLDOWN = 500; // ms visual
+        const STUN_DURATION = 5000;
 
         const INITIAL_GAME_STATE = {
             players: [],
-            sheep: [],
+            police: [],
             gameStatus: 'LOBBY',
-            timer: 0,
-            totalSheep: 10,
-            sheepInPen: 0,
+            startTime: 0,
+            survivalTime: 0,
+            lastSpawnTime: 0,
         };
 
         const AVAILABLE_COLORS = [
@@ -97,47 +109,66 @@
         ];
 
         // --- GAME LOGIC ---
-        const checkCollision = (r1, r2) => {
-            return (
-                r1.x < r2.x + r2.w &&
-                r1.x + r1.w > r2.x &&
-                r1.y < r2.y + r2.h &&
-                r1.y + r1.h > r2.y
-            );
-        };
-
         const distance = (x1, y1, x2, y2) => {
             return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
         };
 
-        const generateSheep = (count) => {
-            const sheep = [];
-            for(let i=0; i<count; i++) {
-                sheep.push({
-                    id: `sheep-${i}-${Date.now()}`,
-                    x: CANVAS_WIDTH / 2 + (Math.random() * 400 - 200),
-                    y: CANVAS_HEIGHT / 2 + (Math.random() * 400 - 200),
-                    vx: 0,
-                    vy: 0,
-                    isCarried: false,
-                    inPen: false,
-                    carriedByPlayerId: null
-                });
-            }
-            return sheep;
+        const checkCollisionCircles = (c1, c2) => {
+            const dist = distance(c1.x, c1.y, c2.x, c2.y);
+            return dist < (c1.r + c2.r);
         };
 
         const updatePhysics = (gameState, inputs) => {
             const newState = { ...gameState };
+            const now = Date.now();
 
-            // 1. Update Players
+            // Calculate dynamic police speed
+            const timePlayed = newState.survivalTime * 1000;
+            const speedStage = Math.min(10, Math.floor(timePlayed / POLICE_SPEED_GROWTH_INTERVAL));
+            // Speed grows from 40% to 80% over time (4% per stage)
+            const currentPoliceSpeedFactor = POLICE_BASE_SPEED_RATIO + (speedStage * 0.04);
+            const policeSpeed = Math.min(PLAYER_SPEED * POLICE_MAX_SPEED_RATIO, PLAYER_SPEED * currentPoliceSpeedFactor);
+
+            // 1. Spawn Police
+            if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
+                newState.lastSpawnTime = now;
+                
+                // Random edge spawn
+                let px, py;
+                const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
+                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; }
+                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; }
+                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; }
+                else { px = -30; py = Math.random() * CANVAS_HEIGHT; }
+
+                newState.police.push({
+                    id: `police-${now}`,
+                    x: px,
+                    y: py,
+                    state: 'CHASING', // CHASING, DRAGGING, STUNNED, EXITING
+                    targetId: null,
+                    stunUntil: 0,
+                    draggingPlayerId: null
+                });
+            }
+
+            // 2. Update Players (Movement & Attack)
             newState.players = newState.players.map(player => {
+                if (player.isEliminated) return player;
+
+                // If captured, physics is handled by the police dragging them
+                if (player.isCaptured) {
+                    // Just update attack visualization if they try to struggle (optional visual)
+                    // but they can't move
+                    return player;
+                }
+
                 const input = inputs[player.peerId];
                 if (!input) return player;
 
+                // Movement
                 let dx = 0;
                 let dy = 0;
-
                 if (input.up) dy -= PLAYER_SPEED;
                 if (input.down) dy += PLAYER_SPEED;
                 if (input.left) dx -= PLAYER_SPEED;
@@ -148,116 +179,184 @@
                     dy *= 0.7071;
                 }
 
-                let newX = Math.max(20, Math.min(CANVAS_WIDTH - 20, player.x + dx));
-                let newY = Math.max(20, Math.min(CANVAS_HEIGHT - 20, player.y + dy));
+                let newX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, player.x + dx));
+                let newY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, player.y + dy));
 
-                // Action: Pick up / Drop
-                let holdingSheepId = player.holdingSheepId;
-                
-                if (input.action) {
-                    if (holdingSheepId) {
-                        const sheepIndex = newState.sheep.findIndex(s => s.id === holdingSheepId);
-                        if (sheepIndex !== -1) {
-                            newState.sheep[sheepIndex].isCarried = false;
-                            newState.sheep[sheepIndex].carriedByPlayerId = null;
-                            holdingSheepId = null;
+                // Attack Logic
+                let lastAttack = player.lastAttack || 0;
+                if (input.action && now - lastAttack > ATTACK_COOLDOWN) {
+                    lastAttack = now;
+                    // Check for rescue
+                    newState.police.forEach(cop => {
+                        if (cop.state === 'DRAGGING' && distance(newX, newY, cop.x, cop.y) < ATTACK_RADIUS) {
+                            cop.state = 'STUNNED';
+                            cop.stunUntil = now + STUN_DURATION;
+                            
+                            // Free the victim
+                            const victim = newState.players.find(p => p.peerId === cop.draggingPlayerId);
+                            if (victim) {
+                                victim.isCaptured = false;
+                                victim.capturedBy = null;
+                            }
+                            cop.draggingPlayerId = null;
                         }
-                    } else {
-                        const closestSheep = newState.sheep.find(s => 
-                            !s.isCarried && 
-                            !s.inPen && 
-                            distance(player.x, player.y, s.x, s.y) < 40
-                        );
-                        if (closestSheep) {
-                            closestSheep.isCarried = true;
-                            closestSheep.carriedByPlayerId = player.peerId;
-                            holdingSheepId = closestSheep.id;
-                        }
-                    }
+                    });
                 }
 
-                return { ...player, x: newX, y: newY, holdingSheepId };
+                return { ...player, x: newX, y: newY, lastAttack };
             });
 
-            // 2. Update Sheep
-            let sheepInPenCount = 0;
+            // 3. Update Police Physics & AI
+            // Pre-calculate active players to target
+            const activePlayers = newState.players.filter(p => !p.isEliminated && !p.isCaptured);
 
-            newState.sheep = newState.sheep.map(sheep => {
-                if (sheep.inPen) {
-                    sheepInPenCount++;
-                    return sheep;
+            newState.police = newState.police.map(cop => {
+                if (cop.state === 'STUNNED') {
+                    if (now > cop.stunUntil) {
+                        cop.state = 'CHASING';
+                    }
+                    return cop;
                 }
 
-                if (sheep.isCarried && sheep.carriedByPlayerId) {
-                    const carrier = newState.players.find(p => p.peerId === sheep.carriedByPlayerId);
-                    if (carrier) {
-                        const inPen = checkCollision(
-                            {x: carrier.x, y: carrier.y, w: 10, h: 10}, 
-                            {x: PEN_RECT.x, y: PEN_RECT.y, w: PEN_RECT.w, h: PEN_RECT.h}
-                        );
-                        
-                        // If carrier is in pen, sheep is NOT instantly safe unless dropped.
-                        // But for smoother gameplay, let's say if carrier enters pen, sheep is safe?
-                        // No, user prompt said "berut i perenosyat".
-                        // Let's stick to mechanics: must drop to save.
-                        
-                        // If dropped in pen, handled by action release logic above + next frame check below
-                        
-                        return { ...sheep, x: carrier.x, y: carrier.y - 10, vx: 0, vy: 0 };
-                    } else {
-                        return { ...sheep, isCarried: false, carriedByPlayerId: null };
-                    }
-                }
-
-                // AI: Flee
-                let closestDist = Infinity;
-                let targetPlayer = null;
-
-                newState.players.forEach(p => {
-                    const d = distance(sheep.x, sheep.y, p.x, p.y);
-                    if (d < closestDist) {
-                        closestDist = d;
-                        targetPlayer = p;
-                    }
-                });
-
-                let vx = 0;
+                let vx = 0; 
                 let vy = 0;
+                let speed = policeSpeed;
 
-                if (targetPlayer && closestDist < SHEEP_FLEE_RADIUS) {
-                    const angle = Math.atan2(sheep.y - targetPlayer.y, sheep.x - targetPlayer.x);
-                    vx = Math.cos(angle) * SHEEP_SPEED;
-                    vy = Math.sin(angle) * SHEEP_SPEED;
-                } else {
-                    vx = sheep.vx * 0.9;
-                    vy = sheep.vy * 0.9;
-                    if (Math.random() < 0.02) {
-                        const angle = Math.random() * Math.PI * 2;
-                        vx = Math.cos(angle) * (SHEEP_SPEED * 0.5);
-                        vy = Math.sin(angle) * (SHEEP_SPEED * 0.5);
+                if (cop.state === 'EXITING') {
+                    // Police finished job, leaving map
+                    // Simple logic: move away from center
+                    const angle = Math.atan2(cop.y - CANVAS_HEIGHT/2, cop.x - CANVAS_WIDTH/2);
+                    vx = Math.cos(angle) * speed;
+                    vy = Math.sin(angle) * speed;
+                    
+                    // Remove if far out (handled in filter later)
+                }
+                else if (cop.state === 'DRAGGING') {
+                    // Dragging player to nearest edge
+                    const distTop = cop.y;
+                    const distBottom = CANVAS_HEIGHT - cop.y;
+                    const distLeft = cop.x;
+                    const distRight = CANVAS_WIDTH - cop.x;
+                    const minDist = Math.min(distTop, distBottom, distLeft, distRight);
+
+                    speed = speed * 0.5; // Half speed when dragging
+                    
+                    if (minDist === distTop) vy = -speed;
+                    else if (minDist === distBottom) vy = speed;
+                    else if (minDist === distLeft) vx = -speed;
+                    else vx = speed;
+
+                    // Update captured player position
+                    if (cop.draggingPlayerId) {
+                        const victimIndex = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
+                        if (victimIndex !== -1) {
+                            newState.players[victimIndex].x = cop.x;
+                            newState.players[victimIndex].y = cop.y; // Dragged under/with cop
+
+                            // Check Elimination
+                            if (cop.x < 0 || cop.x > CANVAS_WIDTH || cop.y < 0 || cop.y > CANVAS_HEIGHT) {
+                                newState.players[victimIndex].isEliminated = true;
+                                newState.players[victimIndex].isCaptured = false;
+                                cop.state = 'EXITING'; // Cop leaves after success
+                                cop.draggingPlayerId = null;
+                            }
+                        } else {
+                             // Victim disconnected or glitched
+                             cop.state = 'CHASING';
+                        }
+                    } else {
+                        cop.state = 'CHASING';
+                    }
+                }
+                else if (cop.state === 'CHASING') {
+                    // Find nearest target
+                    let nearest = null;
+                    let minD = Infinity;
+
+                    activePlayers.forEach(p => {
+                        const d = distance(cop.x, cop.y, p.x, p.y);
+                        if (d < minD) {
+                            minD = d;
+                            nearest = p;
+                        }
+                    });
+
+                    if (nearest) {
+                        const angle = Math.atan2(nearest.y - cop.y, nearest.x - cop.x);
+                        vx = Math.cos(angle) * speed;
+                        vy = Math.sin(angle) * speed;
+
+                        // Check Catch
+                        if (distance(cop.x, cop.y, nearest.x, nearest.y) < (POLICE_RADIUS + PLAYER_RADIUS)) {
+                            cop.state = 'DRAGGING';
+                            cop.draggingPlayerId = nearest.peerId;
+                            
+                            // Mark player captured
+                            const pIdx = newState.players.findIndex(p => p.peerId === nearest.peerId);
+                            if (pIdx !== -1) {
+                                newState.players[pIdx].isCaptured = true;
+                                newState.players[pIdx].capturedBy = cop.id;
+                            }
+                            
+                            vx = 0; vy = 0; // Stop momentarily
+                        }
+                    } else {
+                        // No targets? Wander or idle
+                        // Move towards center slightly
+                        const angle = Math.atan2(CANVAS_HEIGHT/2 - cop.y, CANVAS_WIDTH/2 - cop.x);
+                        vx = Math.cos(angle) * (speed * 0.5);
+                        vy = Math.sin(angle) * (speed * 0.5);
                     }
                 }
 
-                let newX = Math.max(20, Math.min(CANVAS_WIDTH - 20, sheep.x + vx));
-                let newY = Math.max(20, Math.min(CANVAS_HEIGHT - 20, sheep.y + vy));
-
-                const isNowInPen = checkCollision(
-                    {x: newX, y: newY, w: 20, h: 20},
-                    {x: PEN_RECT.x, y: PEN_RECT.y, w: PEN_RECT.w, h: PEN_RECT.h}
-                );
-
-                if (isNowInPen) {
-                    sheepInPenCount++;
-                    return { ...sheep, x: newX, y: newY, vx: 0, vy: 0, inPen: true };
-                }
-
-                return { ...sheep, x: newX, y: newY, vx, vy };
+                return { ...cop, x: cop.x + vx, y: cop.y + vy };
             });
 
-            newState.sheepInPen = sheepInPenCount;
+            // 4. Police-Police Collision (Separation)
+            // Iterate a few times for stability
+            for(let iter=0; iter<2; iter++) {
+                for (let i = 0; i < newState.police.length; i++) {
+                    for (let j = i + 1; j < newState.police.length; j++) {
+                        const p1 = newState.police[i];
+                        const p2 = newState.police[j];
+                        
+                        // Ignore collision if one is exiting (ghost-like) or stun?
+                        // Requirement: "Police must have collision"
+                        
+                        const dx = p1.x - p2.x;
+                        const dy = p1.y - p2.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        const minDist = POLICE_RADIUS * 2;
 
-            if (sheepInPenCount === newState.totalSheep) {
+                        if (dist < minDist && dist > 0) {
+                            const overlap = (minDist - dist) / 2;
+                            const offsetX = (dx / dist) * overlap;
+                            const offsetY = (dy / dist) * overlap;
+
+                            p1.x += offsetX;
+                            p1.y += offsetY;
+                            p2.x -= offsetX;
+                            p2.y -= offsetY;
+                        }
+                    }
+                }
+            }
+
+            // Cleanup exiting police
+            newState.police = newState.police.filter(cop => {
+                if (cop.state === 'EXITING') {
+                    // Remove if far off screen
+                    return (cop.x > -100 && cop.x < CANVAS_WIDTH + 100 && cop.y > -100 && cop.y < CANVAS_HEIGHT + 100);
+                }
+                return true;
+            });
+
+            // 5. Game Status
+            const aliveCount = newState.players.filter(p => !p.isEliminated).length;
+            if (newState.players.length > 0 && aliveCount === 0) {
                 newState.gameStatus = 'GAME_OVER';
+            } else {
+                 newState.survivalTime = (now - newState.startTime) / 1000;
             }
 
             return newState;
@@ -267,61 +366,20 @@
         const GameCanvas = ({ gameState, myPeerId }) => {
             const canvasRef = useRef(null);
 
-            const drawSheep = (ctx, sheep) => {
-                ctx.save();
-                ctx.translate(sheep.x, sheep.y);
+            const drawPlayer = (ctx, player, now) => {
+                if (player.isEliminated) return; // Or draw ghost?
 
-                if (sheep.isCarried) {
-                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-                    ctx.beginPath();
-                    ctx.ellipse(0, 30, 10, 5, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.translate(0, -5 + Math.sin(Date.now() / 100) * 2);
-                } else {
-                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-                    ctx.beginPath();
-                    ctx.ellipse(0, 10, 12, 6, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-                
-                ctx.fillStyle = '#F3F4F6';
-                ctx.beginPath();
-                ctx.arc(0, 0, 12, 0, Math.PI * 2);
-                ctx.fill();
-                for(let i=0; i<6; i++) {
-                    const angle = (i / 6) * Math.PI * 2;
-                    ctx.beginPath();
-                    ctx.arc(Math.cos(angle) * 10, Math.sin(angle) * 10, 5, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                ctx.fillStyle = '#1F2937';
-                ctx.beginPath();
-                ctx.arc(8, -4, 5, 0, Math.PI * 2);
-                ctx.fill();
-                
-                ctx.beginPath();
-                ctx.ellipse(8, -8, 2, 4, Math.PI / 4, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.fillStyle = 'white';
-                ctx.beginPath();
-                ctx.arc(9, -5, 1, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.restore();
-            };
-
-            const drawPlayer = (ctx, player) => {
                 ctx.save();
                 ctx.translate(player.x, player.y);
 
-                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                // Label
+                ctx.fillStyle = 'rgba(255,255,255,0.8)';
                 ctx.font = '12px Arial';
                 ctx.textAlign = 'center';
                 ctx.fillText(player.name, 0, -25);
+                
                 if (player.peerId === myPeerId) {
-                    ctx.fillStyle = '#FFD700';
+                    ctx.fillStyle = '#FFD700'; // Gold marker for self
                     ctx.beginPath();
                     ctx.moveTo(0, -35);
                     ctx.lineTo(-5, -45);
@@ -329,71 +387,80 @@
                     ctx.fill();
                 }
 
-                ctx.fillStyle = 'rgba(0,0,0,0.2)';
-                ctx.beginPath();
-                ctx.ellipse(0, 15, 10, 5, 0, 0, Math.PI * 2);
-                ctx.fill();
+                // Attack Animation (Swing)
+                if (player.lastAttack && (now - player.lastAttack < 300)) {
+                    const progress = (now - player.lastAttack) / 300;
+                    ctx.save();
+                    ctx.rotate(progress * Math.PI); 
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                    ctx.beginPath();
+                    ctx.arc(25, 0, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
 
+                // Captured State
+                if (player.isCaptured) {
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(0,0, PLAYER_RADIUS + 5, 0, Math.PI*2);
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.fillText("HELP!", 0, -40);
+                }
+
+                // Body
                 ctx.fillStyle = player.color;
                 ctx.beginPath();
-                ctx.arc(0, 0, 15, 0, Math.PI * 2);
+                ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
                 ctx.fill();
                 
+                // Outline
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = 'white';
                 ctx.stroke();
 
-                ctx.lineWidth = 4;
-                ctx.lineCap = 'round';
-                ctx.strokeStyle = player.color;
-
-                if (player.holdingSheepId) {
-                    ctx.beginPath();
-                    ctx.moveTo(-10, 0);
-                    ctx.lineTo(-15, -10);
-                    ctx.stroke();
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(10, 0);
-                    ctx.lineTo(15, -10);
-                    ctx.stroke();
-                } else {
-                    ctx.beginPath();
-                    ctx.moveTo(-12, 5);
-                    ctx.lineTo(-18, 10);
-                    ctx.stroke();
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(12, 5);
-                    ctx.lineTo(18, 10);
-                    ctx.stroke();
-                }
-
                 ctx.restore();
             };
 
-            const drawPen = (ctx) => {
+            const drawPolice = (ctx, cop, now) => {
                 ctx.save();
-                ctx.translate(PEN_RECT.x, PEN_RECT.y);
-                
-                ctx.fillStyle = '#d6b895';
-                ctx.fillRect(0, 0, PEN_RECT.w, PEN_RECT.h);
+                ctx.translate(cop.x, cop.y);
 
-                ctx.strokeStyle = '#5D4037';
-                ctx.lineWidth = 5;
-                ctx.strokeRect(0, 0, PEN_RECT.w, PEN_RECT.h);
-                
-                ctx.fillStyle = '#3E2723';
-                [0, PEN_RECT.w].forEach(x => {
-                    [0, PEN_RECT.h].forEach(y => {
-                        ctx.fillRect(x - 5, y - 5, 10, 10);
-                    });
-                });
+                // Uniform Blue
+                ctx.fillStyle = '#1e3a8a'; // Dark Blue
+                ctx.beginPath();
+                ctx.arc(0, 0, POLICE_RADIUS, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
 
-                ctx.fillStyle = 'rgba(93, 64, 55, 0.5)';
-                ctx.font = 'bold 40px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText("PEN", PEN_RECT.w / 2, PEN_RECT.h / 2 + 10);
+                // Hat Brim
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.ellipse(0, -5, 14, 8, 0, Math.PI, 0);
+                ctx.fill();
+
+                // Badge
+                ctx.fillStyle = '#fbbf24'; // Gold
+                ctx.beginPath();
+                ctx.moveTo(0, -2);
+                ctx.lineTo(3, 3);
+                ctx.lineTo(0, 6);
+                ctx.lineTo(-3, 3);
+                ctx.fill();
+
+                // Stunned Effect
+                if (cop.state === 'STUNNED') {
+                    ctx.fillStyle = 'yellow';
+                    const angle = (now / 200) % (Math.PI * 2);
+                    for(let i=0; i<3; i++) {
+                        const a = angle + (i * (Math.PI*2/3));
+                        ctx.fillText("★", Math.cos(a)*20, Math.sin(a)*20 - 10);
+                    }
+                }
 
                 ctx.restore();
             };
@@ -405,49 +472,62 @@
                 if (!ctx) return;
 
                 const render = () => {
+                    const now = Date.now();
                     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-                    ctx.fillStyle = '#86efac';
+                    // Dark asphalt background
+                    ctx.fillStyle = '#334155';
                     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                     
-                    ctx.fillStyle = '#4ade80';
-                    for(let x=0; x<CANVAS_WIDTH; x+=100) {
-                        for(let y=0; y<CANVAS_HEIGHT; y+=100) {
-                            if ((x+y)%200 === 0) ctx.fillRect(x, y, 50, 50);
-                        }
-                    }
+                    // Grid lines
+                    ctx.strokeStyle = '#475569';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    for(let x=0; x<CANVAS_WIDTH; x+=100) { ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_HEIGHT); }
+                    for(let y=0; y<CANVAS_HEIGHT; y+=100) { ctx.moveTo(0,y); ctx.lineTo(CANVAS_WIDTH,y); }
+                    ctx.stroke();
 
-                    drawPen(ctx);
+                    // Danger Zones (Edges)
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'; // Red
+                    ctx.lineWidth = 10;
+                    ctx.strokeRect(0,0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
+                    // Entities
                     const entities = [
                         ...gameState.players.map(p => ({ type: 'player', y: p.y, obj: p })),
-                        ...gameState.sheep.map(s => ({ type: 'sheep', y: s.y, obj: s }))
+                        ...gameState.police.map(p => ({ type: 'police', y: p.y, obj: p }))
                     ];
-
                     entities.sort((a, b) => a.y - b.y);
 
                     entities.forEach(ent => {
-                        if (ent.type === 'player') {
-                            drawPlayer(ctx, ent.obj);
-                        } else {
-                            drawSheep(ctx, ent.obj);
-                        }
+                        if (ent.type === 'player') drawPlayer(ctx, ent.obj, now);
+                        else drawPolice(ctx, ent.obj, now);
                     });
                     
+                    // HUD
+                    ctx.textAlign = 'right';
                     ctx.fillStyle = 'white';
-                    ctx.font = 'bold 20px Arial';
-                    ctx.fillText(`Sheep Saved: ${gameState.sheepInPen} / ${gameState.totalSheep}`, 20, 30);
+                    ctx.font = 'bold 24px monospace';
+                    ctx.fillText(`SURVIVED: ${gameState.survivalTime.toFixed(1)}s`, CANVAS_WIDTH - 20, 40);
+
+                    // Controls hint
+                    ctx.textAlign = 'left';
+                    ctx.font = '16px Arial';
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.fillText("SPACE: Rescue captured friends!", 20, 40);
 
                     if (gameState.gameStatus === 'GAME_OVER') {
-                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
                         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                         
-                        ctx.fillStyle = '#fff';
+                        ctx.fillStyle = '#ef4444';
                         ctx.font = 'bold 60px Arial';
                         ctx.textAlign = 'center';
-                        ctx.fillText("ALL SHEEP SAVED!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-                        ctx.font = '24px Arial';
-                        ctx.fillText("Great Teamwork!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
+                        ctx.fillText("BUSTED!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+                        
+                        ctx.fillStyle = 'white';
+                        ctx.font = '30px monospace';
+                        ctx.fillText(`Total Time: ${gameState.survivalTime.toFixed(2)}s`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
                     }
                 };
 
@@ -460,7 +540,7 @@
                 ref={canvasRef} 
                 width={CANVAS_WIDTH} 
                 height={CANVAS_HEIGHT} 
-                className="rounded-lg shadow-2xl cursor-crosshair touch-none"
+                className="rounded-lg shadow-2xl cursor-crosshair touch-none border-4 border-slate-700"
                 />
             );
         };
@@ -492,12 +572,9 @@
             const keysPressed = useRef(new Set());
 
             useEffect(() => {
-                // Check for URL param "host" to auto-fill or auto-join
                 const params = new URLSearchParams(window.location.search);
                 const hostParam = params.get('host');
-                if (hostParam) {
-                    setHostIdInput(hostParam);
-                }
+                if (hostParam) setHostIdInput(hostParam);
 
                 return () => {
                     if (peerRef.current) peerRef.current.destroy();
@@ -508,8 +585,6 @@
             const initializePeer = async () => {
                 return new Promise((resolve, reject) => {
                     setStatusMsg('Initializing Network...');
-                    
-                    // ROBUST CONFIGURATION FOR NAT TRAVERSAL
                     const newPeer = new window.Peer({
                         debug: 1,
                         config: {
@@ -524,7 +599,6 @@
                     });
                     
                     newPeer.on('open', (id) => {
-                        console.log('My peer ID is: ' + id);
                         setMyPeerId(id);
                         peerRef.current = newPeer;
                         resolve(newPeer);
@@ -532,15 +606,7 @@
 
                     newPeer.on('error', (err) => {
                         console.error('Peer error:', err);
-                        let errMsg = `Error: ${err.type}`;
-                        if (err.type === 'peer-unavailable') {
-                            errMsg = "Host not found. Please check the ID and ensure Host is online.";
-                        } else if (err.type === 'network') {
-                            errMsg = "Network error. Check your internet connection.";
-                        } else if (err.type === 'browser-incompatible') {
-                             errMsg = "Browser not compatible. Try Chrome or Firefox.";
-                        }
-                        setJoinError(errMsg);
+                        setJoinError("Connection Failed. Refresh and try again.");
                         setIsConnecting(false);
                         setStatusMsg('');
                     });
@@ -554,7 +620,6 @@
             const createGame = async () => {
                 if (!playerName || !selectedColor) return;
                 setIsConnecting(true);
-                setJoinError('');
                 
                 try {
                     const peer = await initializePeer();
@@ -567,22 +632,22 @@
                         peerId: peer.id,
                         name: playerName,
                         color: selectedColor,
-                        x: 100,
-                        y: 100,
-                        holdingSheepId: null,
+                        x: CANVAS_WIDTH / 2,
+                        y: CANVAS_HEIGHT / 2,
                         isHost: true,
-                        score: 0
+                        isCaptured: false,
+                        isEliminated: false,
+                        capturedBy: null,
+                        lastAttack: 0
                     };
 
                     gameStateRef.current = {
                         ...INITIAL_GAME_STATE,
                         players: [hostPlayer],
-                        sheep: generateSheep(10)
                     };
                     setRenderedGameState({...gameStateRef.current});
                 } catch (e) {
-                    console.error(e);
-                    setJoinError("Failed to initialize host");
+                    setJoinError("Failed to host");
                 } finally {
                     setIsConnecting(false);
                 }
@@ -590,17 +655,12 @@
 
             const handleIncomingConnection = (conn) => {
                 conn.on('open', () => {
-                    console.log('New connection from:', conn.peer);
                     connectionsRef.current.set(conn.peer, conn);
-
                     conn.send({ type: 'GAME_STATE', payload: gameStateRef.current });
-
-                    conn.on('data', (data) => {
-                        handleNetworkMessage(conn.peer, data);
-                    });
-
+                    conn.on('data', (data) => handleNetworkMessage(conn.peer, data));
                     conn.on('close', () => {
                         connectionsRef.current.delete(conn.peer);
+                        // Mark player as eliminated if they disconnect? Or just remove?
                         gameStateRef.current.players = gameStateRef.current.players.filter(p => p.peerId !== conn.peer);
                     });
                 });
@@ -609,26 +669,31 @@
             const startGame = () => {
                 if (!isHost) return;
                 gameStateRef.current.gameStatus = 'PLAYING';
+                gameStateRef.current.startTime = Date.now();
+                gameStateRef.current.lastSpawnTime = Date.now();
                 broadcast({ type: 'START_GAME', payload: {} });
                 setMode('GAME');
             };
 
             const restartGame = () => {
                 if (!isHostRef.current) return;
+                
+                // Reset Logic
                 const resetPlayers = gameStateRef.current.players.map((p, i) => ({
                     ...p,
-                    x: 100 + (i * 100),
-                    y: 100,
-                    holdingSheepId: null,
+                    x: CANVAS_WIDTH/2 + (i%2===0 ? 50 : -50),
+                    y: CANVAS_HEIGHT/2 + (i<2 ? 50 : -50),
+                    isCaptured: false,
+                    isEliminated: false,
+                    capturedBy: null,
                 }));
 
                 const newGameState = {
+                    ...INITIAL_GAME_STATE,
                     players: resetPlayers,
-                    sheep: generateSheep(10),
                     gameStatus: 'PLAYING',
-                    timer: 0,
-                    totalSheep: 10,
-                    sheepInPen: 0,
+                    startTime: Date.now(),
+                    lastSpawnTime: Date.now(),
                 };
 
                 gameStateRef.current = newGameState;
@@ -639,8 +704,7 @@
             const joinGame = async () => {
                 if (!playerName || !selectedColor || !hostIdInput) return;
                 setIsConnecting(true);
-                setJoinError('');
-                setStatusMsg('Connecting to server...');
+                setStatusMsg('Connecting...');
 
                 try {
                     const peer = await initializePeer();
@@ -648,28 +712,17 @@
                     isHostRef.current = false;
                     hostIdRef.current = hostIdInput;
 
-                    console.log("Connecting to host ID:", hostIdInput);
+                    const conn = peer.connect(hostIdInput, { reliable: true });
                     
-                    // Standard connection (reliable false is default and often safer for compatibility)
-                    const conn = peer.connect(hostIdInput);
-                    
-                    if (!conn) {
-                        throw new Error("Connection failed to initialize");
-                    }
-
-                    // Setup connection timeout watchdog
                     const connectionTimeout = setTimeout(() => {
                         if (!conn.open) {
-                            setJoinError("Connection timed out. Host might be behind a firewall or offline.");
+                            setJoinError("Host unresponsive. Check ID.");
                             setIsConnecting(false);
-                            conn.close();
                         }
-                    }, 15000); // 15 seconds timeout
+                    }, 15000);
 
                     conn.on('open', () => {
                         clearTimeout(connectionTimeout);
-                        console.log("Connection established with host");
-                        setStatusMsg('Connected! Logging in...');
                         connectionsRef.current.set(hostIdInput, conn);
                         conn.send({ 
                             type: 'JOIN_REQUEST', 
@@ -681,38 +734,26 @@
                         if (data.type === 'GAME_STATE') {
                             gameStateRef.current = data.payload;
                             setRenderedGameState({...data.payload});
-                            
                             if (mode === 'MENU') {
                                 setMode('LOBBY');
                                 setIsConnecting(false);
                             }
-
-                            if (data.payload.gameStatus === 'PLAYING' && mode !== 'GAME') {
-                                setMode('GAME');
-                            }
+                            if (data.payload.gameStatus === 'PLAYING' && mode !== 'GAME') setMode('GAME');
                         } else if (data.type === 'START_GAME') {
                             setMode('GAME');
-                        } else if (data.type === 'JOIN_ACCEPT') {
-                            setMode('LOBBY');
                         }
                     });
 
                     conn.on('error', (err) => {
                         clearTimeout(connectionTimeout);
-                        console.error("Connection error:", err);
-                        setJoinError(`Connection Error: ${err}`);
-                        setMode('MENU');
+                        setJoinError("Connection error.");
                         setIsConnecting(false);
                     });
                     
-                    conn.on('close', () => {
-                        alert("Disconnected from host");
-                        window.location.reload();
-                    });
+                    conn.on('close', () => window.location.reload());
 
                 } catch (e) {
-                    console.error(e);
-                    setJoinError("Failed to initialize client");
+                    setJoinError("Failed to join");
                     setIsConnecting(false);
                 }
             };
@@ -721,12 +762,7 @@
                 if (isHostRef.current) {
                     if (msg.type === 'JOIN_REQUEST') {
                         const { name, color } = msg.payload;
-                        
-                        if (gameStateRef.current.players.some(p => p.color === color)) {
-                            console.warn(`Join rejected: Color taken`);
-                            return; 
-                        }
-
+                        if (gameStateRef.current.players.some(p => p.color === color)) return;
                         if (gameStateRef.current.players.length >= 4) return;
 
                         const newPlayer = {
@@ -734,11 +770,13 @@
                             peerId: senderId,
                             name,
                             color,
-                            x: 100 + (gameStateRef.current.players.length * 100),
-                            y: 100,
-                            holdingSheepId: null,
+                            x: CANVAS_WIDTH / 2,
+                            y: CANVAS_HEIGHT / 2,
                             isHost: false,
-                            score: 0
+                            isCaptured: false,
+                            isEliminated: false,
+                            capturedBy: null,
+                            lastAttack: 0
                         };
                         
                         gameStateRef.current.players.push(newPlayer);
@@ -758,30 +796,20 @@
 
             const gameLoop = useCallback(() => {
                 if (isHostRef.current) {
-                    if (peerRef.current?.id) {
-                        inputsRef.current[peerRef.current.id] = myInputRef.current;
-                    }
+                    if (peerRef.current?.id) inputsRef.current[peerRef.current.id] = myInputRef.current;
                     
                     if (gameStateRef.current.gameStatus !== 'GAME_OVER') {
-                        const nextState = updatePhysics(gameStateRef.current, inputsRef.current);
-                        gameStateRef.current = nextState;
+                        gameStateRef.current = updatePhysics(gameStateRef.current, inputsRef.current);
                     }
-
                     broadcast({ type: 'GAME_STATE', payload: gameStateRef.current });
                     setRenderedGameState({...gameStateRef.current});
-
                 } else {
-                    const hostId = hostIdRef.current;
-                    const hostConn = connectionsRef.current.get(hostId);
-                    if (hostConn && hostConn.open) {
-                        hostConn.send({ type: 'INPUT', payload: myInputRef.current });
-                    }
+                    const hostConn = connectionsRef.current.get(hostIdRef.current);
+                    if (hostConn && hostConn.open) hostConn.send({ type: 'INPUT', payload: myInputRef.current });
                 }
 
-                if (myInputRef.current.action) {
-                    myInputRef.current.action = false;
-                }
-                
+                // Clear trigger
+                if (myInputRef.current.action) myInputRef.current.action = false;
                 Object.keys(inputsRef.current).forEach(k => {
                     if (inputsRef.current[k].action) inputsRef.current[k].action = false;
                 });
@@ -791,130 +819,114 @@
 
             useEffect(() => {
                 if (mode === 'LOBBY' || mode === 'GAME') {
-                    if (!requestRef.current) {
-                        requestRef.current = requestAnimationFrame(gameLoop);
-                    }
+                    if (!requestRef.current) requestRef.current = requestAnimationFrame(gameLoop);
                 } else {
-                    if (requestRef.current) {
-                        cancelAnimationFrame(requestRef.current);
-                        requestRef.current = undefined;
-                    }
+                    if (requestRef.current) cancelAnimationFrame(requestRef.current);
                 }
             }, [mode, gameLoop]);
 
             useEffect(() => {
-                const handleKeyDown = (e) => {
+                const handleKey = (e, isDown) => {
                     if (e.repeat) return;
-                    keysPressed.current.add(e.code);
-                    updateInputState();
-                };
-
-                const handleKeyUp = (e) => {
-                    keysPressed.current.delete(e.code);
-                    updateInputState();
-                };
-
-                const updateInputState = () => {
-                    const keys = keysPressed.current;
+                    isDown ? keysPressed.current.add(e.code) : keysPressed.current.delete(e.code);
                     myInputRef.current = {
-                        up: keys.has('ArrowUp') || keys.has('KeyW'),
-                        down: keys.has('ArrowDown') || keys.has('KeyS'),
-                        left: keys.has('ArrowLeft') || keys.has('KeyA'),
-                        right: keys.has('ArrowRight') || keys.has('KeyD'),
-                        action: keys.has('Space') || keys.has('Enter') || myInputRef.current.action
+                        up: keysPressed.current.has('ArrowUp') || keysPressed.current.has('KeyW'),
+                        down: keysPressed.current.has('ArrowDown') || keysPressed.current.has('KeyS'),
+                        left: keysPressed.current.has('ArrowLeft') || keysPressed.current.has('KeyA'),
+                        right: keysPressed.current.has('ArrowRight') || keysPressed.current.has('KeyD'),
+                        action: keysPressed.current.has('Space') || myInputRef.current.action
                     };
                 };
-
-                window.addEventListener('keydown', handleKeyDown);
-                window.addEventListener('keyup', handleKeyUp);
+                window.addEventListener('keydown', (e) => handleKey(e, true));
+                window.addEventListener('keyup', (e) => handleKey(e, false));
                 return () => {
-                    window.removeEventListener('keydown', handleKeyDown);
-                    window.removeEventListener('keyup', handleKeyUp);
+                    window.removeEventListener('keydown', handleKey);
+                    window.removeEventListener('keyup', handleKey);
                 };
             }, []);
 
             const copyInviteLink = () => {
                 const url = `${window.location.protocol}//${window.location.host}${window.location.pathname}?host=${myPeerId}`;
                 navigator.clipboard.writeText(url);
-                alert("Invite link copied! Send it to your friends.");
+                alert("Link copied!");
             };
 
             if (mode === 'MENU') {
                 return (
-                    <div className="min-h-screen bg-stone-100 flex items-center justify-center p-4">
-                        <div className="max-w-md w-full bg-white rounded-xl shadow-xl p-8 space-y-6">
+                    <div className="min-h-screen bg-stone-900 flex items-center justify-center p-4 font-mono">
+                        <div className="max-w-md w-full bg-slate-800 rounded-xl border border-slate-700 shadow-2xl p-8 space-y-6">
                         <div className="text-center space-y-2">
-                            <h1 className="text-4xl font-bold text-stone-800">Sheep Herder</h1>
-                            <p className="text-stone-500">Cooperative Multiplayer</p>
+                            <div className="flex justify-center mb-2"><ShieldAlert size={48} className="text-red-500"/></div>
+                            <h1 className="text-4xl font-bold text-white tracking-tighter">POLICE ESCAPE</h1>
+                            <p className="text-slate-400">Survive together or get busted.</p>
                         </div>
 
                         <div className="space-y-4">
                             <div>
-                            <label className="block text-sm font-medium text-stone-700 mb-1">Your Name</label>
+                            <label className="block text-sm font-medium text-slate-300 mb-1">CODENAME</label>
                             <input 
                                 type="text" 
-                                className="w-full p-2 border border-stone-300 rounded-md focus:ring-2 focus:ring-green-500 outline-none"
-                                placeholder="Enter nickname"
+                                className="w-full p-2 bg-slate-900 border border-slate-700 text-white rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="Enter name"
                                 value={playerName}
                                 onChange={(e) => setPlayerName(e.target.value)}
                             />
                             </div>
 
                             <div>
-                            <label className="block text-sm font-medium text-stone-700 mb-2">Select Color</label>
+                            <label className="block text-sm font-medium text-slate-300 mb-2">TEAM COLOR</label>
                             <div className="flex justify-between gap-2">
                                 {AVAILABLE_COLORS.map(c => (
                                 <button
                                     key={c.value}
                                     onClick={() => setSelectedColor(c.value)}
-                                    className={`w-12 h-12 rounded-full ${c.bg} transition-transform hover:scale-110 ${selectedColor === c.value ? 'ring-4 ring-offset-2 ring-stone-400 scale-110' : ''}`}
-                                    title={c.label}
+                                    className={`w-12 h-12 rounded-full ${c.bg} transition-transform hover:scale-110 ${selectedColor === c.value ? 'ring-4 ring-offset-2 ring-slate-500 scale-110' : ''}`}
                                 />
                                 ))}
                             </div>
                             </div>
 
-                            <div className="pt-4 border-t border-stone-200 space-y-3">
+                            <div className="pt-4 border-t border-slate-700 space-y-3">
                             {isConnecting ? (
-                                <div className="flex flex-col items-center py-4 text-green-600 gap-2">
+                                <div className="flex flex-col items-center py-4 text-blue-400 gap-2">
                                     <Loader2 className="animate-spin" size={32} />
-                                    <span className="text-sm text-stone-500">{statusMsg}</span>
+                                    <span className="text-sm">{statusMsg}</span>
                                 </div>
                             ) : (
                                 <>
                                     <button 
                                         onClick={createGame}
                                         disabled={!playerName || !selectedColor}
-                                        className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                                        className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-900/50"
                                     >
-                                        <Play size={20} /> Create Host
+                                        CREATE LOBBY
                                     </button>
                                     
-                                    <div className="relative">
-                                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-stone-300"></div></div>
-                                        <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-stone-500">Or Join Existing</span></div>
+                                    <div className="relative py-2">
+                                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700"></div></div>
+                                        <div className="relative flex justify-center text-xs"><span className="px-2 bg-slate-800 text-slate-500">OR JOIN SQUAD</span></div>
                                     </div>
 
                                     <div className="flex gap-2">
                                         <input 
                                         type="text" 
-                                        className="flex-1 p-2 border border-stone-300 rounded-md font-mono text-sm"
-                                        placeholder="Paste Host ID here"
+                                        className="flex-1 p-2 bg-slate-900 border border-slate-700 text-white rounded-md text-sm font-mono"
+                                        placeholder="Paste ID here"
                                         value={hostIdInput}
                                         onChange={(e) => setHostIdInput(e.target.value)}
                                         />
                                         <button 
                                         onClick={joinGame}
                                         disabled={!playerName || !selectedColor || !hostIdInput}
-                                        className="px-6 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50"
+                                        className="px-6 bg-slate-700 text-white rounded-lg font-bold hover:bg-slate-600 disabled:opacity-50"
                                         >
-                                        Join
+                                        JOIN
                                         </button>
                                     </div>
                                 </>
                             )}
                             {joinError && (
-                                <div className="p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm flex items-center gap-2">
+                                <div className="p-3 bg-red-900/50 border border-red-700 rounded text-red-200 text-sm flex items-center gap-2">
                                     <WifiOff size={16} />
                                     <span>{joinError}</span>
                                 </div>
@@ -928,41 +940,41 @@
 
             if (mode === 'LOBBY') {
                 return (
-                    <div className="min-h-screen bg-stone-100 flex items-center justify-center p-4">
-                        <div className="max-w-2xl w-full bg-white rounded-xl shadow-xl p-8">
-                        <h2 className="text-3xl font-bold text-stone-800 mb-6 text-center">Lobby</h2>
+                    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-mono">
+                        <div className="max-w-2xl w-full bg-slate-800 rounded-xl border border-slate-700 shadow-xl p-8 text-white">
+                        <h2 className="text-3xl font-bold mb-6 text-center">PRE-GAME LOBBY</h2>
                         
                         {isHost && (
                             <div className="mb-6 space-y-3">
-                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 flex flex-col items-center gap-2">
-                                    <span className="text-blue-800 font-medium">Share this Host ID:</span>
-                                    <div className="flex items-center gap-2 bg-white px-4 py-2 rounded border border-blue-200 w-full max-w-md">
-                                        <code className="text-sm font-mono font-bold select-all truncate flex-1">{myPeerId}</code>
-                                        <button onClick={() => navigator.clipboard.writeText(myPeerId)} className="text-blue-500 hover:text-blue-700 p-1"><Copy size={18}/></button>
+                                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700 flex flex-col items-center gap-2">
+                                    <span className="text-slate-400 text-sm">SQUAD CODE:</span>
+                                    <div className="flex items-center gap-2 w-full max-w-md">
+                                        <code className="flex-1 bg-black p-2 rounded text-green-400 text-center">{myPeerId}</code>
+                                        <button onClick={() => navigator.clipboard.writeText(myPeerId)} className="p-2 bg-slate-700 hover:bg-slate-600 rounded"><Copy size={18}/></button>
                                     </div>
                                 </div>
                                 <button 
                                     onClick={copyInviteLink}
-                                    className="w-full py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors"
+                                    className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
                                 >
-                                    <LinkIcon size={18}/> Copy Invite Link
+                                    <LinkIcon size={16}/> COPY INVITE LINK
                                 </button>
                             </div>
                         )}
 
                         <div className="mb-8">
-                            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Users size={20}/> Players ({renderedGameState.players.length}/4)</h3>
+                            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-slate-300"><Users size={20}/> OPERATIVES ({renderedGameState.players.length}/4)</h3>
                             <div className="grid grid-cols-2 gap-4">
                             {renderedGameState.players.map(p => (
-                                <div key={p.id} className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg border border-stone-200">
+                                <div key={p.id} className="flex items-center gap-3 p-3 bg-slate-700 rounded-lg border border-slate-600">
                                 <div className="w-8 h-8 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: p.color }}></div>
-                                <span className="font-medium">{p.name} {p.isHost && '(Host)'} {p.id === myPeerId && '(You)'}</span>
+                                <span className="font-medium">{p.name} {p.isHost && '★'}</span>
                                 </div>
                             ))}
                             {[...Array(4 - renderedGameState.players.length)].map((_, i) => (
-                                <div key={i} className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg border border-stone-200 border-dashed opacity-50">
-                                <div className="w-8 h-8 rounded-full bg-stone-200"></div>
-                                <span className="italic">Waiting...</span>
+                                <div key={i} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700 border-dashed opacity-50">
+                                <div className="w-8 h-8 rounded-full bg-slate-600"></div>
+                                <span className="italic text-slate-500">Waiting for backup...</span>
                                 </div>
                             ))}
                             </div>
@@ -971,13 +983,13 @@
                         {isHost ? (
                             <button 
                             onClick={startGame}
-                            className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-xl hover:bg-green-700 shadow-lg hover:shadow-green-200 transition-all"
+                            className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-xl hover:bg-green-500 shadow-lg shadow-green-900/50 transition-all"
                             >
-                            Start Game
+                            START MISSION
                             </button>
                         ) : (
-                            <div className="text-center py-4 text-stone-500 animate-pulse">
-                            Waiting for host to start the game...
+                            <div className="text-center py-4 text-slate-500 animate-pulse">
+                            Waiting for leader to start...
                             </div>
                         )}
                         </div>
@@ -986,41 +998,19 @@
             }
 
             return (
-                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-900 p-4">
-                    <div className="mb-4 flex items-center gap-6 text-white">
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-white/10 rounded-lg"><User size={20}/></div>
-                            <span className="font-bold">{playerName}</span>
-                        </div>
-                        <div className="h-8 w-px bg-white/20"></div>
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-white/10 rounded-lg"><Info size={20}/></div>
-                            <span>Controls: <b>WASD/Arrows</b> to Move, <b>SPACE</b> to Grab/Drop</span>
-                        </div>
-                    </div>
+                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-950 p-2 select-none">
+                    <GameCanvas gameState={renderedGameState} myPeerId={myPeerId} />
                     
-                    <div className="relative">
-                        <GameCanvas gameState={renderedGameState} myPeerId={myPeerId} />
-                        
-                        {renderedGameState.gameStatus === 'GAME_OVER' && (
-                            <div className="absolute inset-0 flex items-center justify-end flex-col pb-24 pointer-events-none">
-                                <div className="pointer-events-auto animate-bounce">
-                                    {isHost ? (
-                                        <button 
-                                            onClick={restartGame}
-                                            className="flex items-center gap-2 px-8 py-4 bg-green-600 hover:bg-green-700 text-white text-xl font-bold rounded-full shadow-xl transition-transform hover:scale-105"
-                                        >
-                                            <RotateCcw size={24} /> Play Again
-                                        </button>
-                                    ) : (
-                                        <div className="px-6 py-3 bg-black/60 text-white rounded-full backdrop-blur-sm font-medium flex items-center gap-2">
-                                            <Loader2 className="animate-spin" size={18} /> Waiting for Host to Restart...
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    {renderedGameState.gameStatus === 'GAME_OVER' && isHost && (
+                        <div className="absolute bottom-10 pointer-events-auto animate-bounce">
+                            <button 
+                                onClick={restartGame}
+                                className="flex items-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white text-xl font-bold rounded-full shadow-xl transition-transform hover:scale-105"
+                            >
+                                <RotateCcw size={24} /> RETRY MISSION
+                            </button>
+                        </div>
+                    )}
                 </div>
             );
         };
