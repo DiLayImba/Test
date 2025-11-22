@@ -30,6 +30,13 @@
       ::-webkit-scrollbar-track { background: #f1f1f1; }
       ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
       ::-webkit-scrollbar-thumb:hover { background: #555; }
+      
+      @keyframes ping-slow {
+        75%, 100% { transform: scale(2); opacity: 0; }
+      }
+      .animate-ping-slow {
+        animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+      }
     </style>
 <script type="importmap">
 {
@@ -66,6 +73,13 @@
         const WifiOff = (props) => <IconWrapper {...props}><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></IconWrapper>;
         const LinkIcon = (props) => <IconWrapper {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></IconWrapper>;
         const ShieldAlert = (props) => <IconWrapper {...props}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></IconWrapper>;
+        // Ability Icons
+        const Zap = (props) => <IconWrapper {...props}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></IconWrapper>;
+        const Ghost = (props) => <IconWrapper {...props}><path d="M9 19v-6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6"/><path d="M9 19h6"/><path d="M9 19c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2"/><path d="M12 15V9"/><path d="M12 5a7 7 0 0 0-7 7v7h14v-7a7 7 0 0 0-7-7z"/></IconWrapper>;
+        const Snowflake = (props) => <IconWrapper {...props}><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/><line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/></IconWrapper>;
+        const BrickWall = (props) => <IconWrapper {...props}><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 9v6"/><path d="M15 3v6"/><path d="M15 15v6"/></IconWrapper>;
+        const Bug = (props) => <IconWrapper {...props}><rect width="8" height="12" x="8" y="6" rx="4"/><path d="m15 7 2.5-2.5"/><path d="m15 11 2.5 2.5"/><path d="m9 17 2.5 2.5"/><path d="m9 7-2.5-2.5"/><path d="m9 11-2.5 2.5"/><path d="m15 17-2.5 2.5"/></IconWrapper>;
+        const HeartPulse = (props) => <IconWrapper {...props}><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></IconWrapper>;
 
         // --- CONSTANTS & TYPES ---
         const PlayerColor = {
@@ -75,9 +89,19 @@
             BLACK: '#171717',
         };
 
+        const ABILITIES = {
+            DASH: { id: 'DASH', name: 'Dash', desc: 'Dash 5 body lengths forward.', cd: 10000, icon: <Zap /> },
+            INVISIBILITY: { id: 'INVISIBILITY', name: 'Stealth', desc: 'Invisible to police for 5s.', cd: 30000, icon: <Ghost /> },
+            FREEZE: { id: 'FREEZE', name: 'Freeze', desc: 'Stun all police for 2s.', cd: 40000, icon: <Snowflake /> },
+            WALL: { id: 'WALL', name: 'Barricade', desc: 'Drop a wall behind you.', cd: 20000, icon: <BrickWall /> },
+            WEB: { id: 'WEB', name: 'Spider Web', desc: 'Drop a slowing web behind you.', cd: 30000, icon: <Bug /> },
+            SPEED: { id: 'SPEED', name: 'Adrenaline', desc: 'Double speed for 5s.', cd: 60000, icon: <Zap className="text-yellow-400"/> },
+            SECOND_LIFE: { id: 'SECOND_LIFE', name: 'Second Chance', desc: 'Respawn once if eliminated.', cd: 0, passive: true, icon: <HeartPulse /> },
+            SHOCKER: { id: 'SHOCKER', name: 'Shocker', desc: 'Break free from arrest.', cd: 60000, icon: <Zap className="text-blue-400"/> },
+        };
+
         const CANVAS_WIDTH = 1200;
         const CANVAS_HEIGHT = 800;
-        // Reduced speed by ~20% (was 6)
         const PLAYER_SPEED = 4.8; 
         const PLAYER_RADIUS = 15;
         
@@ -87,20 +111,29 @@
         const POLICE_BASE_SPEED_RATIO = 0.4;
         const POLICE_MAX_SPEED_RATIO = 0.8;
         const POLICE_SPEED_GROWTH_INTERVAL = 5000;
+        const ARREST_DURATION = 5000; // ms wait before dragging
         
         // Combat Constants
         const ATTACK_RADIUS = 70;
         const ATTACK_COOLDOWN = 500; // ms visual
         const STUN_DURATION = 5000;
 
+        // Ability Constants
+        const WALL_SIZE = 60;
+        const WEB_RADIUS = 50;
+        const DASH_DISTANCE = PLAYER_RADIUS * 2 * 5; // 5 body lengths
+
         const INITIAL_GAME_STATE = {
             players: [],
             police: [],
-            gameStatus: 'LOBBY',
+            walls: [], // { id, x, y, createdAt }
+            webs: [], // { id, x, y, createdAt }
+            gameStatus: 'LOBBY', // LOBBY, ABILITY_SELECTION, COUNTDOWN, PLAYING, GAME_OVER
             startTime: 0,
             survivalTime: 0,
             lastSpawnTime: 0,
-            nextSpawnSide: 0, // 0: Top, 1: Right, 2: Bottom, 3: Left
+            nextSpawnSide: 0,
+            countdownValue: 3,
         };
 
         const AVAILABLE_COLORS = [
@@ -115,89 +148,247 @@
             return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
         };
 
-        // Get random position safely inside canvas
-        const getRandomSpawn = () => {
-            return {
-                x: 50 + Math.random() * (CANVAS_WIDTH - 100),
-                y: 50 + Math.random() * (CANVAS_HEIGHT - 100)
-            };
+        // Rect-Circle collision for Walls
+        const rectCircleColliding = (circle, rect) => {
+            const distX = Math.abs(circle.x - rect.x - rect.w / 2);
+            const distY = Math.abs(circle.y - rect.y - rect.h / 2);
+
+            if (distX > (rect.w / 2 + circle.r)) return false;
+            if (distY > (rect.h / 2 + circle.r)) return false;
+
+            if (distX <= (rect.w / 2)) return true; 
+            if (distY <= (rect.h / 2)) return true;
+
+            const dx = distX - rect.w / 2;
+            const dy = distY - rect.h / 2;
+            return (dx * dx + dy * dy <= (circle.r * circle.r));
+        };
+
+        const getSafeSpawn = (existingPlayers) => {
+            const marginX = CANVAS_WIDTH * 0.25;
+            const marginY = CANVAS_HEIGHT * 0.25;
+            const safeWidth = CANVAS_WIDTH - (marginX * 2);
+            const safeHeight = CANVAS_HEIGHT - (marginY * 2);
+            
+            let attempts = 0;
+            let pos = { x: 0, y: 0 };
+            let safe = false;
+
+            while (!safe && attempts < 50) {
+                pos.x = marginX + Math.random() * safeWidth;
+                pos.y = marginY + Math.random() * safeHeight;
+                safe = true;
+                for (const p of existingPlayers) {
+                    if (distance(pos.x, pos.y, p.x, p.y) < (PLAYER_RADIUS * 3)) {
+                        safe = false;
+                        break;
+                    }
+                }
+                attempts++;
+            }
+            return pos;
         };
 
         const updatePhysics = (gameState, inputs) => {
             const newState = { ...gameState };
             const now = Date.now();
 
-            // Calculate dynamic police speed
+            // Pause logic during selection/countdown
+            if (newState.gameStatus === 'ABILITY_SELECTION') {
+                // Check if everyone has selected
+                const allSelected = newState.players.length > 0 && newState.players.every(p => p.selectedAbility);
+                if (allSelected) {
+                    newState.gameStatus = 'COUNTDOWN';
+                    newState.startTime = now; // Using startTime for countdown ref
+                }
+                return newState;
+            }
+
+            if (newState.gameStatus === 'COUNTDOWN') {
+                const diff = now - newState.startTime;
+                if (diff < 1000) newState.countdownValue = 3;
+                else if (diff < 2000) newState.countdownValue = 2;
+                else if (diff < 3000) newState.countdownValue = 1;
+                else {
+                    newState.gameStatus = 'PLAYING';
+                    newState.startTime = now; // Reset real start time
+                    newState.lastSpawnTime = now;
+                }
+                return newState;
+            }
+
+            // --- PLAYING LOGIC ---
+
+            // 0. Cleanup Old Objects
+            // Removed Lifetime checks for Wall and Web - they are now permanent
+            // newState.walls = newState.walls.filter(w => now - w.createdAt < WALL_LIFETIME);
+            // newState.webs = newState.webs.filter(w => now - w.createdAt < WEB_LIFETIME);
+
+            // Dynamic Police Speed
             const timePlayed = newState.survivalTime * 1000;
             const speedStage = Math.min(10, Math.floor(timePlayed / POLICE_SPEED_GROWTH_INTERVAL));
-            // Speed grows from 40% to 80% over time
             const currentPoliceSpeedFactor = POLICE_BASE_SPEED_RATIO + (speedStage * 0.04);
-            const policeSpeed = Math.min(PLAYER_SPEED * POLICE_MAX_SPEED_RATIO, PLAYER_SPEED * currentPoliceSpeedFactor);
+            const basePoliceSpeed = Math.min(PLAYER_SPEED * POLICE_MAX_SPEED_RATIO, PLAYER_SPEED * currentPoliceSpeedFactor);
 
             // 1. Spawn Police
             if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
                 newState.lastSpawnTime = now;
-                
-                // Use the pre-determined side
                 const edge = newState.nextSpawnSide;
                 let px, py;
-                
-                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; } // Top
-                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; } // Right
-                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; } // Bottom
-                else { px = -30; py = Math.random() * CANVAS_HEIGHT; } // Left
+                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; }
+                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; }
+                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; }
+                else { px = -30; py = Math.random() * CANVAS_HEIGHT; }
 
                 newState.police.push({
                     id: `police-${now}`,
                     x: px,
                     y: py,
-                    state: 'CHASING', // CHASING, DRAGGING, STUNNED, EXITING
+                    state: 'CHASING',
                     targetId: null,
                     stunUntil: 0,
+                    arrestStartTime: 0,
                     draggingPlayerId: null
                 });
-
-                // Pick NEXT side randomly
                 newState.nextSpawnSide = Math.floor(Math.random() * 4);
             }
 
-            // 2. Update Players (Movement & Attack)
+            // 2. Update Players
             newState.players = newState.players.map(player => {
                 if (player.isEliminated) return player;
-
-                // If captured, physics is handled by the police dragging them
-                if (player.isCaptured) return player;
-
+                
                 const input = inputs[player.peerId];
                 if (!input) return player;
 
-                // Movement
+                // Captured logic overrides movement
+                if (player.isCaptured) {
+                    // Shocker Ability
+                    if (player.selectedAbility === 'SHOCKER' && input.ability && (!player.abilityCooldown || now > player.abilityCooldown)) {
+                        player.abilityCooldown = now + ABILITIES.SHOCKER.cd;
+                        player.isCaptured = false;
+                        const cop = newState.police.find(p => p.id === player.capturedBy);
+                        if (cop) {
+                            cop.state = 'STUNNED';
+                            cop.stunUntil = now + STUN_DURATION;
+                            cop.draggingPlayerId = null;
+                        }
+                        player.capturedBy = null;
+                    }
+                    return player;
+                }
+
+                // --- Movement Calculation ---
+                let currentSpeed = PLAYER_SPEED;
+                
+                // Web Slowdown
+                const inWeb = newState.webs.some(w => distance(player.x, player.y, w.x, w.y) < WEB_RADIUS);
+                if (inWeb) currentSpeed *= 0.2;
+
+                // Speed Boost Ability Effect
+                if (player.speedBoostUntil && now < player.speedBoostUntil) {
+                    currentSpeed *= 2;
+                }
+
                 let dx = 0;
                 let dy = 0;
-                if (input.up) dy -= PLAYER_SPEED;
-                if (input.down) dy += PLAYER_SPEED;
-                if (input.left) dx -= PLAYER_SPEED;
-                if (input.right) dx += PLAYER_SPEED;
+                if (input.up) dy -= currentSpeed;
+                if (input.down) dy += currentSpeed;
+                if (input.left) dx -= currentSpeed;
+                if (input.right) dx += currentSpeed;
 
                 if (dx !== 0 && dy !== 0) {
                     dx *= 0.7071;
                     dy *= 0.7071;
                 }
 
-                let newX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, player.x + dx));
-                let newY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, player.y + dy));
+                // Update Direction (Vector) if moving
+                let dirX = player.dirX || 0;
+                let dirY = player.dirY || 1;
+                if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+                    const mag = Math.sqrt(dx*dx + dy*dy);
+                    dirX = dx / mag;
+                    dirY = dy / mag;
+                }
 
-                // Attack Logic
+                // --- Ability Activation ---
+                if (input.ability && player.selectedAbility && (!player.abilityCooldown || now > player.abilityCooldown)) {
+                    const ability = ABILITIES[player.selectedAbility];
+                    let activated = false;
+
+                    if (ability.id === 'DASH') {
+                        // Dash Logic: Move 5 body lengths instantly, checking bounds
+                        let dashX = player.x + dirX * DASH_DISTANCE;
+                        let dashY = player.y + dirY * DASH_DISTANCE;
+                        dashX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, dashX));
+                        dashY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, dashY));
+                        
+                        player.x = dashX; 
+                        player.y = dashY;
+                        activated = true;
+                    }
+                    else if (ability.id === 'INVISIBILITY') {
+                        player.invisibleUntil = now + 5000;
+                        activated = true;
+                    }
+                    else if (ability.id === 'FREEZE') {
+                        newState.police.forEach(p => {
+                            p.state = 'STUNNED';
+                            p.stunUntil = now + 2000;
+                        });
+                        activated = true;
+                    }
+                    else if (ability.id === 'WALL') {
+                        // Spawn wall behind
+                        newState.walls.push({
+                            id: `wall-${now}-${player.peerId}`,
+                            x: player.x - (dirX * 40) - (WALL_SIZE/2),
+                            y: player.y - (dirY * 40) - (WALL_SIZE/2),
+                            w: WALL_SIZE,
+                            h: WALL_SIZE,
+                            createdAt: now
+                        });
+                        activated = true;
+                    }
+                    else if (ability.id === 'WEB') {
+                        newState.webs.push({
+                            id: `web-${now}-${player.peerId}`,
+                            x: player.x - (dirX * 40),
+                            y: player.y - (dirY * 40),
+                            createdAt: now
+                        });
+                        activated = true;
+                    }
+                    else if (ability.id === 'SPEED') {
+                        player.speedBoostUntil = now + 5000;
+                        activated = true;
+                    }
+                    // Passive abilities (Second Life, Shocker) handled elsewhere
+
+                    if (activated) {
+                        player.abilityCooldown = now + ability.cd;
+                    }
+                }
+
+                let newX = player.x + dx;
+                let newY = player.y + dy;
+
+                // Wall Collision for Player
+                for (const w of newState.walls) {
+                    if (rectCircleColliding({x: newX, y: player.y, r: PLAYER_RADIUS}, w)) newX = player.x;
+                    if (rectCircleColliding({x: player.x, y: newY, r: PLAYER_RADIUS}, w)) newY = player.y;
+                }
+
+                newX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, newX));
+                newY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, newY));
+
+                // Attack Logic (Spacebar)
                 let lastAttack = player.lastAttack || 0;
                 if (input.action && now - lastAttack > ATTACK_COOLDOWN) {
                     lastAttack = now;
-                    // Check for rescue
                     newState.police.forEach(cop => {
-                        if (cop.state === 'DRAGGING' && distance(newX, newY, cop.x, cop.y) < ATTACK_RADIUS) {
+                        if ((cop.state === 'DRAGGING' || cop.state === 'ARRESTING') && distance(newX, newY, cop.x, cop.y) < ATTACK_RADIUS) {
                             cop.state = 'STUNNED';
                             cop.stunUntil = now + STUN_DURATION;
-                            
-                            // Free the victim
                             const victim = newState.players.find(p => p.peerId === cop.draggingPlayerId);
                             if (victim) {
                                 victim.isCaptured = false;
@@ -208,19 +399,15 @@
                     });
                 }
 
-                return { ...player, x: newX, y: newY, lastAttack };
+                return { ...player, x: newX, y: newY, dirX, dirY, lastAttack };
             });
 
-            // 2.5 Player-Player Collision (Separation)
+            // 2.5 Player-Player Collision
             for(let i=0; i < newState.players.length; i++) {
                 for(let j=i+1; j < newState.players.length; j++) {
                     const p1 = newState.players[i];
                     const p2 = newState.players[j];
-
-                    // Skip eliminated
-                    if (p1.isEliminated || p2.isEliminated) continue;
-                    // Captured players don't push active players (they are being dragged)
-                    if (p1.isCaptured || p2.isCaptured) continue;
+                    if (p1.isEliminated || p2.isEliminated || p1.isCaptured || p2.isCaptured) continue;
 
                     const dx = p1.x - p2.x;
                     const dy = p1.y - p2.y;
@@ -231,51 +418,51 @@
                         const overlap = (minDist - dist) / 2;
                         const offsetX = (dx / dist) * overlap;
                         const offsetY = (dy / dist) * overlap;
-
-                        // Push apart
-                        p1.x += offsetX;
-                        p1.y += offsetY;
-                        p2.x -= offsetX;
-                        p2.y -= offsetY;
-
-                        // Clamp to bounds again just in case
-                        p1.x = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, p1.x));
-                        p1.y = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, p1.y));
-                        p2.x = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, p2.x));
-                        p2.y = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, p2.y));
+                        p1.x += offsetX; p1.y += offsetY;
+                        p2.x -= offsetX; p2.y -= offsetY;
                     }
                 }
             }
 
-            // 3. Update Police Physics & AI
+            // 3. Update Police
             const activePlayers = newState.players.filter(p => !p.isEliminated && !p.isCaptured);
+            const visiblePlayers = activePlayers.filter(p => !p.invisibleUntil || now > p.invisibleUntil);
 
             newState.police = newState.police.map(cop => {
                 if (cop.state === 'STUNNED') {
-                    if (now > cop.stunUntil) {
-                        cop.state = 'CHASING';
-                    }
+                    if (now > cop.stunUntil) cop.state = 'CHASING';
                     return cop;
                 }
 
-                let vx = 0; 
-                let vy = 0;
-                let speed = policeSpeed;
+                let speed = basePoliceSpeed;
+                // Web Slowdown for Police
+                if (newState.webs.some(w => distance(cop.x, cop.y, w.x, w.y) < WEB_RADIUS)) {
+                    speed *= 0.2;
+                }
+
+                let vx = 0, vy = 0;
 
                 if (cop.state === 'EXITING') {
                     const angle = Math.atan2(cop.y - CANVAS_HEIGHT/2, cop.x - CANVAS_WIDTH/2);
                     vx = Math.cos(angle) * speed;
                     vy = Math.sin(angle) * speed;
                 }
+                else if (cop.state === 'ARRESTING') {
+                    if (now - cop.arrestStartTime > ARREST_DURATION) cop.state = 'DRAGGING';
+                    // Snap victim
+                    if (cop.draggingPlayerId) {
+                         const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
+                         if (vIdx !== -1) { newState.players[vIdx].x = cop.x; newState.players[vIdx].y = cop.y; }
+                    }
+                    return cop; 
+                }
                 else if (cop.state === 'DRAGGING') {
-                    // Dragging player to nearest edge
                     const distTop = cop.y;
                     const distBottom = CANVAS_HEIGHT - cop.y;
                     const distLeft = cop.x;
                     const distRight = CANVAS_WIDTH - cop.x;
                     const minDist = Math.min(distTop, distBottom, distLeft, distRight);
 
-                    // Reduced speed when dragging (50% of current police speed)
                     speed = speed * 0.5; 
                     
                     if (minDist === distTop) vy = -speed;
@@ -283,36 +470,43 @@
                     else if (minDist === distLeft) vx = -speed;
                     else vx = speed;
 
-                    // Update captured player position
                     if (cop.draggingPlayerId) {
-                        const victimIndex = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
-                        if (victimIndex !== -1) {
-                            newState.players[victimIndex].x = cop.x;
-                            newState.players[victimIndex].y = cop.y;
+                        const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
+                        if (vIdx !== -1) {
+                            newState.players[vIdx].x = cop.x;
+                            newState.players[vIdx].y = cop.y;
 
                             if (cop.x < 0 || cop.x > CANVAS_WIDTH || cop.y < 0 || cop.y > CANVAS_HEIGHT) {
-                                newState.players[victimIndex].isEliminated = true;
-                                newState.players[victimIndex].isCaptured = false;
-                                cop.state = 'EXITING';
-                                cop.draggingPlayerId = null;
+                                // Check Second Life
+                                const victim = newState.players[vIdx];
+                                if (victim.selectedAbility === 'SECOND_LIFE' && !victim.secondLifeUsed) {
+                                    victim.secondLifeUsed = true;
+                                    victim.isCaptured = false;
+                                    victim.capturedBy = null;
+                                    // Respawn safe
+                                    const pos = getSafeSpawn(newState.players);
+                                    victim.x = pos.x;
+                                    victim.y = pos.y;
+                                    cop.state = 'EXITING';
+                                    cop.draggingPlayerId = null;
+                                } else {
+                                    victim.isEliminated = true;
+                                    victim.isCaptured = false;
+                                    cop.state = 'EXITING';
+                                    cop.draggingPlayerId = null;
+                                }
                             }
-                        } else {
-                             cop.state = 'CHASING';
-                        }
-                    } else {
-                        cop.state = 'CHASING';
-                    }
+                        } else { cop.state = 'CHASING'; }
+                    } else { cop.state = 'CHASING'; }
                 }
                 else if (cop.state === 'CHASING') {
                     let nearest = null;
                     let minD = Infinity;
 
-                    activePlayers.forEach(p => {
+                    // AI targets VISIBLE players
+                    visiblePlayers.forEach(p => {
                         const d = distance(cop.x, cop.y, p.x, p.y);
-                        if (d < minD) {
-                            minD = d;
-                            nearest = p;
-                        }
+                        if (d < minD) { minD = d; nearest = p; }
                     });
 
                     if (nearest) {
@@ -321,68 +515,119 @@
                         vy = Math.sin(angle) * speed;
 
                         if (distance(cop.x, cop.y, nearest.x, nearest.y) < (POLICE_RADIUS + PLAYER_RADIUS)) {
-                            cop.state = 'DRAGGING';
+                            cop.state = 'ARRESTING';
+                            cop.arrestStartTime = now;
                             cop.draggingPlayerId = nearest.peerId;
                             const pIdx = newState.players.findIndex(p => p.peerId === nearest.peerId);
                             if (pIdx !== -1) {
                                 newState.players[pIdx].isCaptured = true;
                                 newState.players[pIdx].capturedBy = cop.id;
+                                newState.players[pIdx].x = cop.x; 
+                                newState.players[pIdx].y = cop.y;
                             }
                             vx = 0; vy = 0; 
                         }
                     } else {
+                        // Wander randomly or to center
                         const angle = Math.atan2(CANVAS_HEIGHT/2 - cop.y, CANVAS_WIDTH/2 - cop.x);
                         vx = Math.cos(angle) * (speed * 0.5);
                         vy = Math.sin(angle) * (speed * 0.5);
                     }
                 }
 
-                return { ...cop, x: cop.x + vx, y: cop.y + vy };
+                // Wall Collision for Police
+                let nextX = cop.x + vx;
+                let nextY = cop.y + vy;
+                for (const w of newState.walls) {
+                    if (rectCircleColliding({x: nextX, y: cop.y, r: POLICE_RADIUS}, w)) nextX = cop.x;
+                    if (rectCircleColliding({x: cop.x, y: nextY, r: POLICE_RADIUS}, w)) nextY = cop.y;
+                }
+
+                return { ...cop, x: nextX, y: nextY };
             });
 
-            // 4. Police-Police Collision
+            // 4. Police Collision
             for(let iter=0; iter<2; iter++) {
                 for (let i = 0; i < newState.police.length; i++) {
                     for (let j = i + 1; j < newState.police.length; j++) {
                         const p1 = newState.police[i];
                         const p2 = newState.police[j];
-                        
                         const dx = p1.x - p2.x;
                         const dy = p1.y - p2.y;
                         const dist = Math.sqrt(dx*dx + dy*dy);
                         const minDist = POLICE_RADIUS * 2;
-
                         if (dist < minDist && dist > 0) {
                             const overlap = (minDist - dist) / 2;
-                            const offsetX = (dx / dist) * overlap;
-                            const offsetY = (dy / dist) * overlap;
-
-                            p1.x += offsetX;
-                            p1.y += offsetY;
-                            p2.x -= offsetX;
-                            p2.y -= offsetY;
+                            const ox = (dx/dist)*overlap; const oy = (dy/dist)*overlap;
+                            p1.x += ox; p1.y += oy; p2.x -= ox; p2.y -= oy;
                         }
                     }
                 }
             }
 
-            // Cleanup exiting police
             newState.police = newState.police.filter(cop => {
-                if (cop.state === 'EXITING') {
-                    return (cop.x > -100 && cop.x < CANVAS_WIDTH + 100 && cop.y > -100 && cop.y < CANVAS_HEIGHT + 100);
-                }
+                if (cop.state === 'EXITING') return (cop.x > -100 && cop.x < CANVAS_WIDTH + 100 && cop.y > -100 && cop.y < CANVAS_HEIGHT + 100);
                 return true;
             });
 
-            // 5. Game Status
             const aliveCount = newState.players.filter(p => !p.isEliminated).length;
-            if (newState.players.length > 0 && aliveCount === 0) {
-                newState.gameStatus = 'GAME_OVER';
-            } else {
-                 newState.survivalTime = (now - newState.startTime) / 1000;
-            }
+            if (newState.players.length > 0 && aliveCount === 0) newState.gameStatus = 'GAME_OVER';
+            else newState.survivalTime = (now - newState.startTime) / 1000;
 
             return newState;
+        };
+
+        // --- COMPONENT: ABILITY SELECTOR ---
+        const AbilitySelector = ({ onSelect, selected }) => {
+            const [options, setOptions] = useState([]);
+
+            useEffect(() => {
+                const all = Object.values(ABILITIES);
+                // Shuffle and pick 3
+                for (let i = all.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [all[i], all[j]] = [all[j], all[i]];
+                }
+                setOptions(all.slice(0, 3));
+            }, []);
+
+            if (options.length === 0) return null;
+
+            return (
+                <div className="absolute inset-0 bg-slate-900/90 z-50 flex flex-col items-center justify-center p-8 text-white">
+                    <h2 className="text-4xl font-bold mb-2 text-yellow-400">CHOOSE YOUR SUPER POWER</h2>
+                    <p className="text-slate-400 mb-8">Press <span className="font-bold text-white bg-slate-700 px-2 rounded">E</span> to activate in game</p>
+                    
+                    <div className="flex gap-6 max-w-5xl justify-center w-full">
+                        {options.map(ability => (
+                            <button 
+                                key={ability.id}
+                                onClick={() => onSelect(ability.id)}
+                                className={`flex flex-col items-center p-6 w-64 rounded-xl border-2 transition-all ${
+                                    selected === ability.id 
+                                    ? 'bg-blue-900/50 border-blue-400 scale-105 shadow-xl shadow-blue-500/20' 
+                                    : 'bg-slate-800 border-slate-700 hover:bg-slate-700 hover:border-slate-500'
+                                }`}
+                            >
+                                <div className={`mb-4 p-4 rounded-full ${selected === ability.id ? 'bg-blue-500' : 'bg-slate-600'}`}>
+                                    {ability.icon}
+                                </div>
+                                <h3 className="font-bold text-xl mb-2">{ability.name}</h3>
+                                <p className="text-sm text-slate-400 text-center h-12 leading-tight">{ability.desc}</p>
+                                {ability.passive && <span className="mt-4 text-[10px] uppercase tracking-wider font-bold text-green-400 bg-green-900/30 px-2 py-0.5 rounded">Passive</span>}
+                                {!ability.passive && <span className="mt-4 text-[10px] text-slate-500">CD: {ability.cd/1000}s</span>}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="mt-12 h-8">
+                         {selected ? (
+                             <div className="flex items-center gap-2 text-blue-300 animate-pulse">
+                                <Loader2 className="animate-spin" size={20}/> Waiting for team...
+                             </div>
+                         ) : <div className="text-slate-500">Select a power to lock in</div>}
+                    </div>
+                </div>
+            );
         };
 
         // --- CANVAS COMPONENT ---
@@ -391,15 +636,47 @@
 
             const drawSpawnWarning = (ctx, side) => {
                 const time = Date.now();
-                const opacity = 0.2 + (Math.sin(time / 200) + 1) * 0.2; // Pulse 0.2 - 0.6
+                const opacity = 0.2 + (Math.sin(time / 200) + 1) * 0.2; 
                 ctx.fillStyle = `rgba(239, 68, 68, ${opacity})`;
-                
-                // 0: top, 1: right, 2: bottom, 3: left
                 const barSize = 20;
                 if (side === 0) ctx.fillRect(0, 0, CANVAS_WIDTH, barSize);
                 else if (side === 1) ctx.fillRect(CANVAS_WIDTH - barSize, 0, barSize, CANVAS_HEIGHT);
                 else if (side === 2) ctx.fillRect(0, CANVAS_HEIGHT - barSize, CANVAS_WIDTH, barSize);
                 else if (side === 3) ctx.fillRect(0, 0, barSize, CANVAS_HEIGHT);
+            };
+
+            const drawWalls = (ctx, walls) => {
+                ctx.fillStyle = '#78716c'; // Stone color
+                ctx.strokeStyle = '#44403c';
+                ctx.lineWidth = 3;
+                walls.forEach(w => {
+                    ctx.fillRect(w.x, w.y, w.w, w.h);
+                    ctx.strokeRect(w.x, w.y, w.w, w.h);
+                    // Brick details
+                    ctx.beginPath();
+                    ctx.moveTo(w.x, w.y + w.h/2); ctx.lineTo(w.x + w.w, w.y + w.h/2);
+                    ctx.moveTo(w.x + w.w/2, w.y); ctx.lineTo(w.x + w.w/2, w.y + w.h/2);
+                    ctx.stroke();
+                });
+            };
+
+            const drawWebs = (ctx, webs) => {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1;
+                webs.forEach(w => {
+                    ctx.save();
+                    ctx.translate(w.x, w.y);
+                    ctx.beginPath();
+                    for(let i=0; i<8; i++) {
+                        const angle = (i/8)*Math.PI*2;
+                        ctx.moveTo(0,0);
+                        ctx.lineTo(Math.cos(angle)*WEB_RADIUS, Math.sin(angle)*WEB_RADIUS);
+                    }
+                    ctx.arc(0,0, WEB_RADIUS/2, 0, Math.PI*2);
+                    ctx.arc(0,0, WEB_RADIUS, 0, Math.PI*2);
+                    ctx.stroke();
+                    ctx.restore();
+                });
             };
 
             const drawPlayer = (ctx, player, now) => {
@@ -408,6 +685,17 @@
                 ctx.save();
                 ctx.translate(player.x, player.y);
 
+                // Invisibility Effect
+                if (player.invisibleUntil && now < player.invisibleUntil) {
+                    ctx.globalAlpha = 0.4;
+                }
+
+                // Speed Boost Effect
+                if (player.speedBoostUntil && now < player.speedBoostUntil) {
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = 'yellow';
+                }
+
                 // Label
                 ctx.fillStyle = 'rgba(255,255,255,0.8)';
                 ctx.font = '12px Arial';
@@ -415,7 +703,7 @@
                 ctx.fillText(player.name, 0, -25);
                 
                 if (player.peerId === myPeerId) {
-                    ctx.fillStyle = '#FFD700'; // Gold marker for self
+                    ctx.fillStyle = '#FFD700';
                     ctx.beginPath();
                     ctx.moveTo(0, -35);
                     ctx.lineTo(-5, -45);
@@ -423,7 +711,7 @@
                     ctx.fill();
                 }
 
-                // Attack Animation (Swing)
+                // Attack Animation
                 if (player.lastAttack && (now - player.lastAttack < 300)) {
                     const progress = (now - player.lastAttack) / 300;
                     ctx.save();
@@ -452,7 +740,16 @@
                 ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Outline
+                // Direction Indicator
+                if (player.dirX || player.dirY) {
+                    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0,0);
+                    ctx.lineTo(player.dirX * 20, player.dirY * 20);
+                    ctx.stroke();
+                }
+
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = 'white';
                 ctx.stroke();
@@ -464,8 +761,7 @@
                 ctx.save();
                 ctx.translate(cop.x, cop.y);
 
-                // Uniform Blue
-                ctx.fillStyle = '#1e3a8a'; // Dark Blue
+                ctx.fillStyle = '#1e3a8a';
                 ctx.beginPath();
                 ctx.arc(0, 0, POLICE_RADIUS, 0, Math.PI * 2);
                 ctx.fill();
@@ -480,15 +776,11 @@
                 ctx.fill();
 
                 // Badge
-                ctx.fillStyle = '#fbbf24'; // Gold
+                ctx.fillStyle = '#fbbf24';
                 ctx.beginPath();
-                ctx.moveTo(0, -2);
-                ctx.lineTo(3, 3);
-                ctx.lineTo(0, 6);
-                ctx.lineTo(-3, 3);
+                ctx.moveTo(0, -2); ctx.lineTo(3, 3); ctx.lineTo(0, 6); ctx.lineTo(-3, 3);
                 ctx.fill();
 
-                // Stunned Effect
                 if (cop.state === 'STUNNED') {
                     ctx.fillStyle = 'yellow';
                     const angle = (now / 200) % (Math.PI * 2);
@@ -498,6 +790,19 @@
                     }
                 }
 
+                if (cop.state === 'ARRESTING') {
+                    const remaining = Math.max(0, ARREST_DURATION - (now - cop.arrestStartTime));
+                    const secs = Math.ceil(remaining / 1000);
+                    ctx.fillStyle = 'red';
+                    ctx.font = 'bold 20px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(secs.toString(), 0, -25);
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, POLICE_RADIUS + 8, 0, (remaining / ARREST_DURATION) * Math.PI * 2);
+                    ctx.stroke();
+                }
                 ctx.restore();
             };
 
@@ -510,12 +815,10 @@
                 const render = () => {
                     const now = Date.now();
                     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-                    // Dark asphalt background
                     ctx.fillStyle = '#334155';
                     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                     
-                    // Grid lines
+                    // Grid
                     ctx.strokeStyle = '#475569';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
@@ -523,17 +826,24 @@
                     for(let y=0; y<CANVAS_HEIGHT; y+=100) { ctx.moveTo(0,y); ctx.lineTo(CANVAS_WIDTH,y); }
                     ctx.stroke();
 
-                    // Spawn Warning
+                    // Safe Zone
+                    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([10, 10]);
+                    ctx.strokeRect(CANVAS_WIDTH * 0.25, CANVAS_HEIGHT * 0.25, CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5);
+                    ctx.setLineDash([]);
+
+                    drawWalls(ctx, gameState.walls);
+                    drawWebs(ctx, gameState.webs);
+
                     if (gameState.gameStatus === 'PLAYING') {
                         drawSpawnWarning(ctx, gameState.nextSpawnSide);
                     }
 
-                    // Danger Zones (Edges)
-                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'; // Red
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)';
                     ctx.lineWidth = 10;
                     ctx.strokeRect(0,0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-                    // Entities
                     const entities = [
                         ...gameState.players.map(p => ({ type: 'player', y: p.y, obj: p })),
                         ...gameState.police.map(p => ({ type: 'police', y: p.y, obj: p }))
@@ -551,29 +861,36 @@
                     ctx.font = 'bold 24px monospace';
                     ctx.fillText(`SURVIVED: ${gameState.survivalTime.toFixed(1)}s`, CANVAS_WIDTH - 20, 40);
 
-                    // Controls hint
                     ctx.textAlign = 'left';
                     ctx.font = '16px Arial';
                     ctx.fillStyle = '#cbd5e1';
-                    ctx.fillText("SPACE: Rescue captured friends!", 20, 40);
+                    ctx.fillText("SPACE: Attack/Rescue", 20, 40);
 
                     if (gameState.gameStatus === 'GAME_OVER') {
                         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
                         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                        
                         ctx.fillStyle = '#ef4444';
                         ctx.font = 'bold 60px Arial';
                         ctx.textAlign = 'center';
                         ctx.fillText("BUSTED!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-                        
                         ctx.fillStyle = 'white';
                         ctx.font = '30px monospace';
                         ctx.fillText(`Total Time: ${gameState.survivalTime.toFixed(2)}s`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
                     }
+
+                    if (gameState.gameStatus === 'COUNTDOWN') {
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        ctx.fillStyle = '#fbbf24';
+                        ctx.font = 'bold 120px monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(gameState.countdownValue, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                        ctx.font = '30px Arial';
+                        ctx.fillStyle = 'white';
+                        ctx.fillText("GET READY", CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 60);
+                    }
                 };
-
                 render();
-
             }, [gameState, myPeerId]);
 
             return (
@@ -599,6 +916,8 @@
             const [isConnecting, setIsConnecting] = useState(false);
             const [statusMsg, setStatusMsg] = useState('');
 
+            const [selectedAbility, setSelectedAbility] = useState(null);
+
             const gameStateRef = useRef(JSON.parse(JSON.stringify(INITIAL_GAME_STATE)));
             const [renderedGameState, setRenderedGameState] = useState(INITIAL_GAME_STATE);
             
@@ -609,14 +928,13 @@
             const requestRef = useRef();
             
             const inputsRef = useRef({});
-            const myInputRef = useRef({ up: false, down: false, left: false, right: false, action: false });
+            const myInputRef = useRef({ up: false, down: false, left: false, right: false, action: false, ability: false });
             const keysPressed = useRef(new Set());
 
             useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const hostParam = params.get('host');
                 if (hostParam) setHostIdInput(hostParam);
-
                 return () => {
                     if (peerRef.current) peerRef.current.destroy();
                     if (requestRef.current) cancelAnimationFrame(requestRef.current);
@@ -631,69 +949,43 @@
                         config: {
                             iceServers: [
                                 { urls: 'stun:stun.l.google.com:19302' },
-                                { urls: 'stun:stun1.l.google.com:19302' },
-                                { urls: 'stun:stun2.l.google.com:19302' },
-                                { urls: 'stun:stun3.l.google.com:19302' },
-                                { urls: 'stun:stun4.l.google.com:19302' },
+                                { urls: 'stun:stun1.l.google.com:19302' }
                             ]
                         }
                     });
-                    
                     newPeer.on('open', (id) => {
                         setMyPeerId(id);
                         peerRef.current = newPeer;
                         resolve(newPeer);
                     });
-
                     newPeer.on('error', (err) => {
-                        console.error('Peer error:', err);
-                        setJoinError("Connection Failed. Refresh and try again.");
+                        setJoinError("Connection Failed.");
                         setIsConnecting(false);
-                        setStatusMsg('');
                     });
-
-                    newPeer.on('connection', (conn) => {
-                        handleIncomingConnection(conn);
-                    });
+                    newPeer.on('connection', (conn) => handleIncomingConnection(conn));
                 });
             };
 
             const createGame = async () => {
                 if (!playerName || !selectedColor) return;
                 setIsConnecting(true);
-                
                 try {
                     const peer = await initializePeer();
                     setIsHost(true);
                     isHostRef.current = true;
                     setMode('LOBBY');
 
-                    const pos = getRandomSpawn();
+                    const pos = getSafeSpawn([]);
                     const hostPlayer = {
-                        id: peer.id,
-                        peerId: peer.id,
-                        name: playerName,
-                        color: selectedColor,
-                        x: pos.x,
-                        y: pos.y,
-                        isHost: true,
-                        isCaptured: false,
-                        isEliminated: false,
-                        capturedBy: null,
-                        lastAttack: 0
+                        id: peer.id, peerId: peer.id, name: playerName, color: selectedColor,
+                        x: pos.x, y: pos.y, isHost: true, isCaptured: false, isEliminated: false,
+                        capturedBy: null, lastAttack: 0, selectedAbility: null, abilityCooldown: 0,
+                        dirX: 0, dirY: 1
                     };
 
-                    gameStateRef.current = {
-                        ...INITIAL_GAME_STATE,
-                        players: [hostPlayer],
-                        nextSpawnSide: Math.floor(Math.random() * 4)
-                    };
+                    gameStateRef.current = { ...INITIAL_GAME_STATE, players: [hostPlayer], nextSpawnSide: Math.floor(Math.random() * 4) };
                     setRenderedGameState({...gameStateRef.current});
-                } catch (e) {
-                    setJoinError("Failed to host");
-                } finally {
-                    setIsConnecting(false);
-                }
+                } catch (e) { setJoinError("Failed to host"); } finally { setIsConnecting(false); }
             };
 
             const handleIncomingConnection = (conn) => {
@@ -710,17 +1002,23 @@
 
             const startGame = () => {
                 if (!isHost) return;
-                gameStateRef.current.gameStatus = 'PLAYING';
-                gameStateRef.current.startTime = Date.now();
-                gameStateRef.current.lastSpawnTime = Date.now();
-                // Reset positions on start? Or keep lobby positions. 
-                // Let's keep lobby positions for now, or re-randomize?
-                // Randomize again to be fair.
-                gameStateRef.current.players.forEach(p => {
-                    const pos = getRandomSpawn();
-                    p.x = pos.x;
-                    p.y = pos.y;
+                // Instead of PLAYING, go to ABILITY_SELECTION
+                const currentPlayers = gameStateRef.current.players;
+                const newPlayers = [];
+                currentPlayers.forEach(p => {
+                    const pos = getSafeSpawn(newPlayers);
+                    newPlayers.push({ 
+                        ...p, x: pos.x, y: pos.y, 
+                        isCaptured: false, isEliminated: false, capturedBy: null,
+                        selectedAbility: null, abilityCooldown: 0, secondLifeUsed: false,
+                        dirX: 0, dirY: 1
+                    });
                 });
+                gameStateRef.current.players = newPlayers;
+                gameStateRef.current.police = [];
+                gameStateRef.current.walls = [];
+                gameStateRef.current.webs = [];
+                gameStateRef.current.gameStatus = 'ABILITY_SELECTION';
                 
                 broadcast({ type: 'START_GAME', payload: {} });
                 setMode('GAME');
@@ -728,131 +1026,83 @@
 
             const restartGame = () => {
                 if (!isHostRef.current) return;
-                
-                const resetPlayers = gameStateRef.current.players.map((p) => {
-                    const pos = getRandomSpawn();
-                    return {
-                        ...p,
-                        x: pos.x,
-                        y: pos.y,
-                        isCaptured: false,
-                        isEliminated: false,
-                        capturedBy: null,
-                    };
-                });
-
-                const newGameState = {
-                    ...INITIAL_GAME_STATE,
-                    players: resetPlayers,
-                    gameStatus: 'PLAYING',
-                    startTime: Date.now(),
-                    lastSpawnTime: Date.now(),
-                    nextSpawnSide: Math.floor(Math.random() * 4)
-                };
-
-                gameStateRef.current = newGameState;
-                setRenderedGameState({...newGameState});
-                broadcast({ type: 'GAME_STATE', payload: newGameState });
+                startGame(); 
+                broadcast({ type: 'GAME_STATE', payload: gameStateRef.current });
+                setRenderedGameState({...gameStateRef.current});
             };
 
             const joinGame = async () => {
                 if (!playerName || !selectedColor || !hostIdInput) return;
                 setIsConnecting(true);
-                setStatusMsg('Connecting...');
-
                 try {
                     const peer = await initializePeer();
                     setIsHost(false);
                     isHostRef.current = false;
                     hostIdRef.current = hostIdInput;
-
                     const conn = peer.connect(hostIdInput, { reliable: true });
-                    
-                    const connectionTimeout = setTimeout(() => {
-                        if (!conn.open) {
-                            setJoinError("Host unresponsive. Check ID.");
-                            setIsConnecting(false);
-                        }
-                    }, 15000);
+                    const connectionTimeout = setTimeout(() => { if (!conn.open) setIsConnecting(false); }, 15000);
 
                     conn.on('open', () => {
                         clearTimeout(connectionTimeout);
                         connectionsRef.current.set(hostIdInput, conn);
-                        conn.send({ 
-                            type: 'JOIN_REQUEST', 
-                            payload: { name: playerName, color: selectedColor } 
-                        });
+                        conn.send({ type: 'JOIN_REQUEST', payload: { name: playerName, color: selectedColor } });
                     });
-
                     conn.on('data', (data) => {
                         if (data.type === 'GAME_STATE') {
                             gameStateRef.current = data.payload;
                             setRenderedGameState({...data.payload});
-                            if (mode === 'MENU') {
-                                setMode('LOBBY');
-                                setIsConnecting(false);
-                            }
-                            if (data.payload.gameStatus === 'PLAYING' && mode !== 'GAME') setMode('GAME');
-                        } else if (data.type === 'START_GAME') {
-                            setMode('GAME');
-                        }
+                            if (mode === 'MENU') { setMode('LOBBY'); setIsConnecting(false); }
+                            if ((data.payload.gameStatus === 'PLAYING' || data.payload.gameStatus === 'ABILITY_SELECTION') && mode !== 'GAME') setMode('GAME');
+                        } else if (data.type === 'START_GAME') setMode('GAME');
                     });
-
-                    conn.on('error', (err) => {
-                        clearTimeout(connectionTimeout);
-                        setJoinError("Connection error.");
-                        setIsConnecting(false);
-                    });
-                    
                     conn.on('close', () => window.location.reload());
-
-                } catch (e) {
-                    setJoinError("Failed to join");
-                    setIsConnecting(false);
-                }
+                } catch (e) { setJoinError("Failed to join"); setIsConnecting(false); }
             };
 
             const handleNetworkMessage = (senderId, msg) => {
                 if (isHostRef.current) {
                     if (msg.type === 'JOIN_REQUEST') {
                         const { name, color } = msg.payload;
-                        if (gameStateRef.current.players.some(p => p.color === color)) return;
                         if (gameStateRef.current.players.length >= 4) return;
-
-                        const pos = getRandomSpawn();
+                        const pos = getSafeSpawn(gameStateRef.current.players);
                         const newPlayer = {
-                            id: senderId,
-                            peerId: senderId,
-                            name,
-                            color,
-                            x: pos.x,
-                            y: pos.y,
-                            isHost: false,
-                            isCaptured: false,
-                            isEliminated: false,
-                            capturedBy: null,
-                            lastAttack: 0
+                            id: senderId, peerId: senderId, name, color, x: pos.x, y: pos.y,
+                            isHost: false, isCaptured: false, isEliminated: false, capturedBy: null,
+                            lastAttack: 0, selectedAbility: null, abilityCooldown: 0, dirX: 0, dirY: 1
                         };
-                        
                         gameStateRef.current.players.push(newPlayer);
                         broadcast({ type: 'GAME_STATE', payload: gameStateRef.current });
                     }
                     else if (msg.type === 'INPUT') {
                         inputsRef.current[senderId] = msg.payload;
                     }
+                    else if (msg.type === 'SELECT_ABILITY') {
+                        const pIdx = gameStateRef.current.players.findIndex(p => p.peerId === senderId);
+                        if (pIdx !== -1) {
+                            gameStateRef.current.players[pIdx].selectedAbility = msg.payload.abilityId;
+                        }
+                    }
                 }
             };
 
             const broadcast = (msg) => {
-                connectionsRef.current.forEach(conn => {
-                    if (conn.open) conn.send(msg);
-                });
+                connectionsRef.current.forEach(conn => { if (conn.open) conn.send(msg); });
+            };
+
+            const handleAbilitySelect = (abilityId) => {
+                setSelectedAbility(abilityId);
+                if (isHostRef.current) {
+                    const pIdx = gameStateRef.current.players.findIndex(p => p.peerId === myPeerId);
+                    if (pIdx !== -1) gameStateRef.current.players[pIdx].selectedAbility = abilityId;
+                } else {
+                    const hostConn = connectionsRef.current.get(hostIdRef.current);
+                    if (hostConn) hostConn.send({ type: 'SELECT_ABILITY', payload: { abilityId }});
+                }
             };
 
             const gameLoop = useCallback(() => {
                 if (isHostRef.current) {
                     if (peerRef.current?.id) inputsRef.current[peerRef.current.id] = myInputRef.current;
-                    
                     if (gameStateRef.current.gameStatus !== 'GAME_OVER') {
                         gameStateRef.current = updatePhysics(gameStateRef.current, inputsRef.current);
                     }
@@ -863,10 +1113,12 @@
                     if (hostConn && hostConn.open) hostConn.send({ type: 'INPUT', payload: myInputRef.current });
                 }
 
-                // Clear trigger
                 if (myInputRef.current.action) myInputRef.current.action = false;
+                if (myInputRef.current.ability) myInputRef.current.ability = false;
+                
                 Object.keys(inputsRef.current).forEach(k => {
                     if (inputsRef.current[k].action) inputsRef.current[k].action = false;
+                    if (inputsRef.current[k].ability) inputsRef.current[k].ability = false;
                 });
 
                 requestRef.current = requestAnimationFrame(gameLoop);
@@ -889,7 +1141,8 @@
                         down: keysPressed.current.has('ArrowDown') || keysPressed.current.has('KeyS'),
                         left: keysPressed.current.has('ArrowLeft') || keysPressed.current.has('KeyA'),
                         right: keysPressed.current.has('ArrowRight') || keysPressed.current.has('KeyD'),
-                        action: keysPressed.current.has('Space') || myInputRef.current.action
+                        action: keysPressed.current.has('Space') || myInputRef.current.action,
+                        ability: keysPressed.current.has('KeyE') || myInputRef.current.ability
                     };
                 };
                 window.addEventListener('keydown', (e) => handleKey(e, true));
@@ -900,92 +1153,55 @@
                 };
             }, []);
 
-            const copyInviteLink = () => {
-                const url = `${window.location.protocol}//${window.location.host}${window.location.pathname}?host=${myPeerId}`;
-                navigator.clipboard.writeText(url);
-                alert("Link copied!");
+            // --- RENDER HUD FOR ABILITIES ---
+            const AbilityHUD = ({ player }) => {
+                if (!player || !player.selectedAbility) return null;
+                const ability = ABILITIES[player.selectedAbility];
+                const onCooldown = player.abilityCooldown > Date.now();
+                const timeLeft = onCooldown ? Math.ceil((player.abilityCooldown - Date.now()) / 1000) : 0;
+
+                return (
+                    <div className="absolute bottom-4 left-4 flex items-center gap-3 bg-slate-800/90 p-3 rounded-xl border border-slate-600">
+                        <div className={`relative p-3 rounded-lg ${onCooldown ? 'bg-slate-700' : 'bg-blue-600'} transition-colors`}>
+                            {ability.icon}
+                            <div className="absolute -top-2 -right-2 bg-white text-black font-bold text-xs w-5 h-5 flex items-center justify-center rounded-full">E</div>
+                            {onCooldown && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg font-bold text-white">
+                                    {timeLeft}
+                                </div>
+                            )}
+                        </div>
+                        <div className="text-white">
+                            <div className="font-bold text-sm">{ability.name}</div>
+                            <div className="text-xs text-slate-400">{ability.passive ? 'Passive' : onCooldown ? 'Recharging...' : 'Ready'}</div>
+                        </div>
+                    </div>
+                );
             };
 
+            const myPlayer = renderedGameState.players.find(p => p.peerId === myPeerId);
+
+            // --- RENDER LOGIC ---
             if (mode === 'MENU') {
+                // ... Keep Menu same as before ...
                 return (
                     <div className="min-h-screen bg-stone-900 flex items-center justify-center p-4 font-mono">
                         <div className="max-w-md w-full bg-slate-800 rounded-xl border border-slate-700 shadow-2xl p-8 space-y-6">
                         <div className="text-center space-y-2">
                             <div className="flex justify-center mb-2"><ShieldAlert size={48} className="text-red-500"/></div>
                             <h1 className="text-4xl font-bold text-white tracking-tighter">POLICE ESCAPE</h1>
-                            <p className="text-slate-400">Survive together or get busted.</p>
                         </div>
-
                         <div className="space-y-4">
-                            <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-1">CODENAME</label>
-                            <input 
-                                type="text" 
-                                className="w-full p-2 bg-slate-900 border border-slate-700 text-white rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="Enter name"
-                                value={playerName}
-                                onChange={(e) => setPlayerName(e.target.value)}
-                            />
-                            </div>
-
-                            <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">TEAM COLOR</label>
-                            <div className="flex justify-between gap-2">
-                                {AVAILABLE_COLORS.map(c => (
-                                <button
-                                    key={c.value}
-                                    onClick={() => setSelectedColor(c.value)}
-                                    className={`w-12 h-12 rounded-full ${c.bg} transition-transform hover:scale-110 ${selectedColor === c.value ? 'ring-4 ring-offset-2 ring-slate-500 scale-110' : ''}`}
-                                />
-                                ))}
-                            </div>
-                            </div>
-
+                            <input type="text" className="w-full p-2 bg-slate-900 border border-slate-700 text-white rounded-md" placeholder="Codename" value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
+                            <div className="flex justify-between gap-2">{AVAILABLE_COLORS.map(c => (<button key={c.value} onClick={() => setSelectedColor(c.value)} className={`w-12 h-12 rounded-full ${c.bg} ${selectedColor === c.value ? 'ring-4 ring-white' : ''}`} />))}</div>
                             <div className="pt-4 border-t border-slate-700 space-y-3">
-                            {isConnecting ? (
-                                <div className="flex flex-col items-center py-4 text-blue-400 gap-2">
-                                    <Loader2 className="animate-spin" size={32} />
-                                    <span className="text-sm">{statusMsg}</span>
-                                </div>
-                            ) : (
-                                <>
-                                    <button 
-                                        onClick={createGame}
-                                        disabled={!playerName || !selectedColor}
-                                        className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-900/50"
-                                    >
-                                        CREATE LOBBY
-                                    </button>
-                                    
-                                    <div className="relative py-2">
-                                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700"></div></div>
-                                        <div className="relative flex justify-center text-xs"><span className="px-2 bg-slate-800 text-slate-500">OR JOIN SQUAD</span></div>
-                                    </div>
-
-                                    <div className="flex gap-2">
-                                        <input 
-                                        type="text" 
-                                        className="flex-1 p-2 bg-slate-900 border border-slate-700 text-white rounded-md text-sm font-mono"
-                                        placeholder="Paste ID here"
-                                        value={hostIdInput}
-                                        onChange={(e) => setHostIdInput(e.target.value)}
-                                        />
-                                        <button 
-                                        onClick={joinGame}
-                                        disabled={!playerName || !selectedColor || !hostIdInput}
-                                        className="px-6 bg-slate-700 text-white rounded-lg font-bold hover:bg-slate-600 disabled:opacity-50"
-                                        >
-                                        JOIN
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                            {joinError && (
-                                <div className="p-3 bg-red-900/50 border border-red-700 rounded text-red-200 text-sm flex items-center gap-2">
-                                    <WifiOff size={16} />
-                                    <span>{joinError}</span>
-                                </div>
-                            )}
+                                {isConnecting ? <Loader2 className="animate-spin mx-auto text-blue-400"/> : (
+                                    <>
+                                    <button onClick={createGame} disabled={!playerName || !selectedColor} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">CREATE LOBBY</button>
+                                    <div className="flex gap-2"><input type="text" className="flex-1 p-2 bg-slate-900 text-white rounded-md" placeholder="Host ID" value={hostIdInput} onChange={(e) => setHostIdInput(e.target.value)} /><button onClick={joinGame} className="px-6 bg-slate-700 text-white rounded-lg font-bold">JOIN</button></div>
+                                    </>
+                                )}
+                                {joinError && <div className="text-red-400 text-center text-sm">{joinError}</div>}
                             </div>
                         </div>
                         </div>
@@ -997,73 +1213,40 @@
                 return (
                     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-mono">
                         <div className="max-w-2xl w-full bg-slate-800 rounded-xl border border-slate-700 shadow-xl p-8 text-white">
-                        <h2 className="text-3xl font-bold mb-6 text-center">PRE-GAME LOBBY</h2>
-                        
+                        <h2 className="text-3xl font-bold mb-6 text-center">LOBBY</h2>
                         {isHost && (
-                            <div className="mb-6 space-y-3">
-                                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700 flex flex-col items-center gap-2">
-                                    <span className="text-slate-400 text-sm">SQUAD CODE:</span>
-                                    <div className="flex items-center gap-2 w-full max-w-md">
-                                        <code className="flex-1 bg-black p-2 rounded text-green-400 text-center">{myPeerId}</code>
-                                        <button onClick={() => navigator.clipboard.writeText(myPeerId)} className="p-2 bg-slate-700 hover:bg-slate-600 rounded"><Copy size={18}/></button>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={copyInviteLink}
-                                    className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
-                                >
-                                    <LinkIcon size={16}/> COPY INVITE LINK
-                                </button>
+                            <div className="mb-6 flex items-center justify-center gap-2 bg-black p-2 rounded">
+                                <code className="text-green-400">{myPeerId}</code>
+                                <button onClick={() => navigator.clipboard.writeText(myPeerId)}><Copy size={18}/></button>
                             </div>
                         )}
-
-                        <div className="mb-8">
-                            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-slate-300"><Users size={20}/> OPERATIVES ({renderedGameState.players.length}/4)</h3>
-                            <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-4 mb-8">
                             {renderedGameState.players.map(p => (
-                                <div key={p.id} className="flex items-center gap-3 p-3 bg-slate-700 rounded-lg border border-slate-600">
-                                <div className="w-8 h-8 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: p.color }}></div>
-                                <span className="font-medium">{p.name} {p.isHost && '★'}</span>
+                                <div key={p.id} className="flex items-center gap-3 p-3 bg-slate-700 rounded-lg">
+                                <div className="w-8 h-8 rounded-full" style={{ backgroundColor: p.color }}></div>
+                                <span>{p.name}</span>
                                 </div>
                             ))}
-                            {[...Array(4 - renderedGameState.players.length)].map((_, i) => (
-                                <div key={i} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700 border-dashed opacity-50">
-                                <div className="w-8 h-8 rounded-full bg-slate-600"></div>
-                                <span className="italic text-slate-500">Waiting for backup...</span>
-                                </div>
-                            ))}
-                            </div>
                         </div>
-
-                        {isHost ? (
-                            <button 
-                            onClick={startGame}
-                            className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-xl hover:bg-green-500 shadow-lg shadow-green-900/50 transition-all"
-                            >
-                            START MISSION
-                            </button>
-                        ) : (
-                            <div className="text-center py-4 text-slate-500 animate-pulse">
-                            Waiting for leader to start...
-                            </div>
-                        )}
+                        {isHost ? <button onClick={startGame} className="w-full py-4 bg-green-600 rounded-xl font-bold text-xl">START MISSION</button> : <div className="text-center text-slate-500">Waiting for host...</div>}
                         </div>
                     </div>
                 );
             }
 
             return (
-                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-950 p-2 select-none">
+                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-950 p-2 select-none relative overflow-hidden">
                     <GameCanvas gameState={renderedGameState} myPeerId={myPeerId} />
                     
+                    {renderedGameState.gameStatus === 'ABILITY_SELECTION' && (
+                        <AbilitySelector onSelect={handleAbilitySelect} selected={selectedAbility} />
+                    )}
+                    
+                    {myPlayer && <AbilityHUD player={myPlayer} />}
+
                     {renderedGameState.gameStatus === 'GAME_OVER' && isHost && (
                         <div className="absolute bottom-10 pointer-events-auto animate-bounce">
-                            <button 
-                                onClick={restartGame}
-                                className="flex items-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white text-xl font-bold rounded-full shadow-xl transition-transform hover:scale-105"
-                            >
-                                <RotateCcw size={24} /> RETRY MISSION
-                            </button>
+                            <button onClick={restartGame} className="flex items-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white text-xl font-bold rounded-full shadow-xl"><RotateCcw size={24} /> RETRY MISSION</button>
                         </div>
                     )}
                 </div>
