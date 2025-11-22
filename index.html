@@ -77,7 +77,8 @@
 
         const CANVAS_WIDTH = 1200;
         const CANVAS_HEIGHT = 800;
-        const PLAYER_SPEED = 6;
+        // Reduced speed by ~20% (was 6)
+        const PLAYER_SPEED = 4.8; 
         const PLAYER_RADIUS = 15;
         
         // Police Constants
@@ -99,6 +100,7 @@
             startTime: 0,
             survivalTime: 0,
             lastSpawnTime: 0,
+            nextSpawnSide: 0, // 0: Top, 1: Right, 2: Bottom, 3: Left
         };
 
         const AVAILABLE_COLORS = [
@@ -113,9 +115,12 @@
             return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
         };
 
-        const checkCollisionCircles = (c1, c2) => {
-            const dist = distance(c1.x, c1.y, c2.x, c2.y);
-            return dist < (c1.r + c2.r);
+        // Get random position safely inside canvas
+        const getRandomSpawn = () => {
+            return {
+                x: 50 + Math.random() * (CANVAS_WIDTH - 100),
+                y: 50 + Math.random() * (CANVAS_HEIGHT - 100)
+            };
         };
 
         const updatePhysics = (gameState, inputs) => {
@@ -125,7 +130,7 @@
             // Calculate dynamic police speed
             const timePlayed = newState.survivalTime * 1000;
             const speedStage = Math.min(10, Math.floor(timePlayed / POLICE_SPEED_GROWTH_INTERVAL));
-            // Speed grows from 40% to 80% over time (4% per stage)
+            // Speed grows from 40% to 80% over time
             const currentPoliceSpeedFactor = POLICE_BASE_SPEED_RATIO + (speedStage * 0.04);
             const policeSpeed = Math.min(PLAYER_SPEED * POLICE_MAX_SPEED_RATIO, PLAYER_SPEED * currentPoliceSpeedFactor);
 
@@ -133,13 +138,14 @@
             if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
                 newState.lastSpawnTime = now;
                 
-                // Random edge spawn
+                // Use the pre-determined side
+                const edge = newState.nextSpawnSide;
                 let px, py;
-                const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
-                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; }
-                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; }
-                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; }
-                else { px = -30; py = Math.random() * CANVAS_HEIGHT; }
+                
+                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; } // Top
+                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; } // Right
+                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; } // Bottom
+                else { px = -30; py = Math.random() * CANVAS_HEIGHT; } // Left
 
                 newState.police.push({
                     id: `police-${now}`,
@@ -150,6 +156,9 @@
                     stunUntil: 0,
                     draggingPlayerId: null
                 });
+
+                // Pick NEXT side randomly
+                newState.nextSpawnSide = Math.floor(Math.random() * 4);
             }
 
             // 2. Update Players (Movement & Attack)
@@ -157,11 +166,7 @@
                 if (player.isEliminated) return player;
 
                 // If captured, physics is handled by the police dragging them
-                if (player.isCaptured) {
-                    // Just update attack visualization if they try to struggle (optional visual)
-                    // but they can't move
-                    return player;
-                }
+                if (player.isCaptured) return player;
 
                 const input = inputs[player.peerId];
                 if (!input) return player;
@@ -206,8 +211,43 @@
                 return { ...player, x: newX, y: newY, lastAttack };
             });
 
+            // 2.5 Player-Player Collision (Separation)
+            for(let i=0; i < newState.players.length; i++) {
+                for(let j=i+1; j < newState.players.length; j++) {
+                    const p1 = newState.players[i];
+                    const p2 = newState.players[j];
+
+                    // Skip eliminated
+                    if (p1.isEliminated || p2.isEliminated) continue;
+                    // Captured players don't push active players (they are being dragged)
+                    if (p1.isCaptured || p2.isCaptured) continue;
+
+                    const dx = p1.x - p2.x;
+                    const dy = p1.y - p2.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    const minDist = PLAYER_RADIUS * 2;
+
+                    if (dist < minDist && dist > 0) {
+                        const overlap = (minDist - dist) / 2;
+                        const offsetX = (dx / dist) * overlap;
+                        const offsetY = (dy / dist) * overlap;
+
+                        // Push apart
+                        p1.x += offsetX;
+                        p1.y += offsetY;
+                        p2.x -= offsetX;
+                        p2.y -= offsetY;
+
+                        // Clamp to bounds again just in case
+                        p1.x = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, p1.x));
+                        p1.y = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, p1.y));
+                        p2.x = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, p2.x));
+                        p2.y = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, p2.y));
+                    }
+                }
+            }
+
             // 3. Update Police Physics & AI
-            // Pre-calculate active players to target
             const activePlayers = newState.players.filter(p => !p.isEliminated && !p.isCaptured);
 
             newState.police = newState.police.map(cop => {
@@ -223,13 +263,9 @@
                 let speed = policeSpeed;
 
                 if (cop.state === 'EXITING') {
-                    // Police finished job, leaving map
-                    // Simple logic: move away from center
                     const angle = Math.atan2(cop.y - CANVAS_HEIGHT/2, cop.x - CANVAS_WIDTH/2);
                     vx = Math.cos(angle) * speed;
                     vy = Math.sin(angle) * speed;
-                    
-                    // Remove if far out (handled in filter later)
                 }
                 else if (cop.state === 'DRAGGING') {
                     // Dragging player to nearest edge
@@ -239,7 +275,8 @@
                     const distRight = CANVAS_WIDTH - cop.x;
                     const minDist = Math.min(distTop, distBottom, distLeft, distRight);
 
-                    speed = speed * 0.5; // Half speed when dragging
+                    // Reduced speed when dragging (50% of current police speed)
+                    speed = speed * 0.5; 
                     
                     if (minDist === distTop) vy = -speed;
                     else if (minDist === distBottom) vy = speed;
@@ -251,17 +288,15 @@
                         const victimIndex = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
                         if (victimIndex !== -1) {
                             newState.players[victimIndex].x = cop.x;
-                            newState.players[victimIndex].y = cop.y; // Dragged under/with cop
+                            newState.players[victimIndex].y = cop.y;
 
-                            // Check Elimination
                             if (cop.x < 0 || cop.x > CANVAS_WIDTH || cop.y < 0 || cop.y > CANVAS_HEIGHT) {
                                 newState.players[victimIndex].isEliminated = true;
                                 newState.players[victimIndex].isCaptured = false;
-                                cop.state = 'EXITING'; // Cop leaves after success
+                                cop.state = 'EXITING';
                                 cop.draggingPlayerId = null;
                             }
                         } else {
-                             // Victim disconnected or glitched
                              cop.state = 'CHASING';
                         }
                     } else {
@@ -269,7 +304,6 @@
                     }
                 }
                 else if (cop.state === 'CHASING') {
-                    // Find nearest target
                     let nearest = null;
                     let minD = Infinity;
 
@@ -286,23 +320,17 @@
                         vx = Math.cos(angle) * speed;
                         vy = Math.sin(angle) * speed;
 
-                        // Check Catch
                         if (distance(cop.x, cop.y, nearest.x, nearest.y) < (POLICE_RADIUS + PLAYER_RADIUS)) {
                             cop.state = 'DRAGGING';
                             cop.draggingPlayerId = nearest.peerId;
-                            
-                            // Mark player captured
                             const pIdx = newState.players.findIndex(p => p.peerId === nearest.peerId);
                             if (pIdx !== -1) {
                                 newState.players[pIdx].isCaptured = true;
                                 newState.players[pIdx].capturedBy = cop.id;
                             }
-                            
-                            vx = 0; vy = 0; // Stop momentarily
+                            vx = 0; vy = 0; 
                         }
                     } else {
-                        // No targets? Wander or idle
-                        // Move towards center slightly
                         const angle = Math.atan2(CANVAS_HEIGHT/2 - cop.y, CANVAS_WIDTH/2 - cop.x);
                         vx = Math.cos(angle) * (speed * 0.5);
                         vy = Math.sin(angle) * (speed * 0.5);
@@ -312,16 +340,12 @@
                 return { ...cop, x: cop.x + vx, y: cop.y + vy };
             });
 
-            // 4. Police-Police Collision (Separation)
-            // Iterate a few times for stability
+            // 4. Police-Police Collision
             for(let iter=0; iter<2; iter++) {
                 for (let i = 0; i < newState.police.length; i++) {
                     for (let j = i + 1; j < newState.police.length; j++) {
                         const p1 = newState.police[i];
                         const p2 = newState.police[j];
-                        
-                        // Ignore collision if one is exiting (ghost-like) or stun?
-                        // Requirement: "Police must have collision"
                         
                         const dx = p1.x - p2.x;
                         const dy = p1.y - p2.y;
@@ -345,7 +369,6 @@
             // Cleanup exiting police
             newState.police = newState.police.filter(cop => {
                 if (cop.state === 'EXITING') {
-                    // Remove if far off screen
                     return (cop.x > -100 && cop.x < CANVAS_WIDTH + 100 && cop.y > -100 && cop.y < CANVAS_HEIGHT + 100);
                 }
                 return true;
@@ -366,8 +389,21 @@
         const GameCanvas = ({ gameState, myPeerId }) => {
             const canvasRef = useRef(null);
 
+            const drawSpawnWarning = (ctx, side) => {
+                const time = Date.now();
+                const opacity = 0.2 + (Math.sin(time / 200) + 1) * 0.2; // Pulse 0.2 - 0.6
+                ctx.fillStyle = `rgba(239, 68, 68, ${opacity})`;
+                
+                // 0: top, 1: right, 2: bottom, 3: left
+                const barSize = 20;
+                if (side === 0) ctx.fillRect(0, 0, CANVAS_WIDTH, barSize);
+                else if (side === 1) ctx.fillRect(CANVAS_WIDTH - barSize, 0, barSize, CANVAS_HEIGHT);
+                else if (side === 2) ctx.fillRect(0, CANVAS_HEIGHT - barSize, CANVAS_WIDTH, barSize);
+                else if (side === 3) ctx.fillRect(0, 0, barSize, CANVAS_HEIGHT);
+            };
+
             const drawPlayer = (ctx, player, now) => {
-                if (player.isEliminated) return; // Or draw ghost?
+                if (player.isEliminated) return; 
 
                 ctx.save();
                 ctx.translate(player.x, player.y);
@@ -486,6 +522,11 @@
                     for(let x=0; x<CANVAS_WIDTH; x+=100) { ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_HEIGHT); }
                     for(let y=0; y<CANVAS_HEIGHT; y+=100) { ctx.moveTo(0,y); ctx.lineTo(CANVAS_WIDTH,y); }
                     ctx.stroke();
+
+                    // Spawn Warning
+                    if (gameState.gameStatus === 'PLAYING') {
+                        drawSpawnWarning(ctx, gameState.nextSpawnSide);
+                    }
 
                     // Danger Zones (Edges)
                     ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'; // Red
@@ -627,13 +668,14 @@
                     isHostRef.current = true;
                     setMode('LOBBY');
 
+                    const pos = getRandomSpawn();
                     const hostPlayer = {
                         id: peer.id,
                         peerId: peer.id,
                         name: playerName,
                         color: selectedColor,
-                        x: CANVAS_WIDTH / 2,
-                        y: CANVAS_HEIGHT / 2,
+                        x: pos.x,
+                        y: pos.y,
                         isHost: true,
                         isCaptured: false,
                         isEliminated: false,
@@ -644,6 +686,7 @@
                     gameStateRef.current = {
                         ...INITIAL_GAME_STATE,
                         players: [hostPlayer],
+                        nextSpawnSide: Math.floor(Math.random() * 4)
                     };
                     setRenderedGameState({...gameStateRef.current});
                 } catch (e) {
@@ -660,7 +703,6 @@
                     conn.on('data', (data) => handleNetworkMessage(conn.peer, data));
                     conn.on('close', () => {
                         connectionsRef.current.delete(conn.peer);
-                        // Mark player as eliminated if they disconnect? Or just remove?
                         gameStateRef.current.players = gameStateRef.current.players.filter(p => p.peerId !== conn.peer);
                     });
                 });
@@ -671,6 +713,15 @@
                 gameStateRef.current.gameStatus = 'PLAYING';
                 gameStateRef.current.startTime = Date.now();
                 gameStateRef.current.lastSpawnTime = Date.now();
+                // Reset positions on start? Or keep lobby positions. 
+                // Let's keep lobby positions for now, or re-randomize?
+                // Randomize again to be fair.
+                gameStateRef.current.players.forEach(p => {
+                    const pos = getRandomSpawn();
+                    p.x = pos.x;
+                    p.y = pos.y;
+                });
+                
                 broadcast({ type: 'START_GAME', payload: {} });
                 setMode('GAME');
             };
@@ -678,15 +729,17 @@
             const restartGame = () => {
                 if (!isHostRef.current) return;
                 
-                // Reset Logic
-                const resetPlayers = gameStateRef.current.players.map((p, i) => ({
-                    ...p,
-                    x: CANVAS_WIDTH/2 + (i%2===0 ? 50 : -50),
-                    y: CANVAS_HEIGHT/2 + (i<2 ? 50 : -50),
-                    isCaptured: false,
-                    isEliminated: false,
-                    capturedBy: null,
-                }));
+                const resetPlayers = gameStateRef.current.players.map((p) => {
+                    const pos = getRandomSpawn();
+                    return {
+                        ...p,
+                        x: pos.x,
+                        y: pos.y,
+                        isCaptured: false,
+                        isEliminated: false,
+                        capturedBy: null,
+                    };
+                });
 
                 const newGameState = {
                     ...INITIAL_GAME_STATE,
@@ -694,6 +747,7 @@
                     gameStatus: 'PLAYING',
                     startTime: Date.now(),
                     lastSpawnTime: Date.now(),
+                    nextSpawnSide: Math.floor(Math.random() * 4)
                 };
 
                 gameStateRef.current = newGameState;
@@ -765,13 +819,14 @@
                         if (gameStateRef.current.players.some(p => p.color === color)) return;
                         if (gameStateRef.current.players.length >= 4) return;
 
+                        const pos = getRandomSpawn();
                         const newPlayer = {
                             id: senderId,
                             peerId: senderId,
                             name,
                             color,
-                            x: CANVAS_WIDTH / 2,
-                            y: CANVAS_HEIGHT / 2,
+                            x: pos.x,
+                            y: pos.y,
                             isHost: false,
                             isCaptured: false,
                             isEliminated: false,
