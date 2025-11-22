@@ -7,14 +7,8 @@
     <title>Police Escape Co-op</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- React & ReactDOM (UMD) -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <!-- PeerJS for Networking -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    
-    <!-- Babel for in-browser compilation -->
+    <!-- PeerJS (Global) & Babel -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
@@ -23,65 +17,58 @@
         overflow: hidden;
         background-color: #1c1917; /* stone-900 */
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        touch-action: none; /* Prevent pull-to-refresh on mobile */
+        touch-action: none;
         user-select: none;
       }
+      canvas {
+        touch-action: none;
+      }
+      /* Custom Scrollbar for chat/logs if needed */
       ::-webkit-scrollbar { width: 8px; }
-      ::-webkit-scrollbar-track { background: #f1f1f1; }
-      ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: #555; }
-      
-      @keyframes ping-slow {
-        75%, 100% { transform: scale(2); opacity: 0; }
-      }
-      .animate-ping-slow {
-        animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-      }
+      ::-webkit-scrollbar-track { background: #1e293b; }
+      ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "peerjs": "https://aistudiocdn.com/peerjs@^1.5.5",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
-  }
-}
-</script>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+      }
+    }
+    </script>
 </head>
 <body>
     <div id="root"></div>
 
-    <!-- MAIN GAME SCRIPT -->
-    <script type="text/babel" data-presets="typescript,react">
-        const { useState, useEffect, useRef, useCallback } = React;
-        
-        // --- ICONS ---
-        const IconWrapper = ({ children, size = 24, className = "" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                {children}
-            </svg>
-        );
-        const User = (props) => <IconWrapper {...props}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></IconWrapper>;
-        const Users = (props) => <IconWrapper {...props}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconWrapper>;
-        const Copy = (props) => <IconWrapper {...props}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></IconWrapper>;
-        const Play = (props) => <IconWrapper {...props}><polygon points="5 3 19 12 5 21 5 3"/></IconWrapper>;
-        const Info = (props) => <IconWrapper {...props}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></IconWrapper>;
-        const Loader2 = ({ className, ...props }) => <IconWrapper className={`animate-spin ${className}`} {...props}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></IconWrapper>;
-        const RotateCcw = (props) => <IconWrapper {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></IconWrapper>;
-        const WifiOff = (props) => <IconWrapper {...props}><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></IconWrapper>;
-        const LinkIcon = (props) => <IconWrapper {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></IconWrapper>;
-        const ShieldAlert = (props) => <IconWrapper {...props}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></IconWrapper>;
-        // Ability Icons
-        const Zap = (props) => <IconWrapper {...props}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></IconWrapper>;
-        const Ghost = (props) => <IconWrapper {...props}><path d="M9 19v-6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6"/><path d="M9 19h6"/><path d="M9 19c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2"/><path d="M12 15V9"/><path d="M12 5a7 7 0 0 0-7 7v7h14v-7a7 7 0 0 0-7-7z"/></IconWrapper>;
-        const Snowflake = (props) => <IconWrapper {...props}><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/><line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/></IconWrapper>;
-        const BrickWall = (props) => <IconWrapper {...props}><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 9v6"/><path d="M15 3v6"/><path d="M15 15v6"/></IconWrapper>;
-        const Bug = (props) => <IconWrapper {...props}><rect width="8" height="12" x="8" y="6" rx="4"/><path d="m15 7 2.5-2.5"/><path d="m15 11 2.5 2.5"/><path d="m9 17 2.5 2.5"/><path d="m9 7-2.5-2.5"/><path d="m9 11-2.5 2.5"/><path d="m15 17-2.5 2.5"/></IconWrapper>;
-        const HeartPulse = (props) => <IconWrapper {...props}><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></IconWrapper>;
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef, useCallback } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { User, Copy, Zap, Ghost, Snowflake, Shield, Bug, HeartPulse, Loader2, RotateCcw, Link as LinkIcon, Users } from 'lucide-react';
 
-        // --- CONSTANTS & TYPES ---
+        // Access global PeerJS
+        const Peer = window.Peer;
+
+        // --- CONSTANTS & CONFIG ---
+        const CANVAS_WIDTH = 1200;
+        const CANVAS_HEIGHT = 800;
+        const PLAYER_RADIUS = 15;
+        const POLICE_RADIUS = 16;
+        const PLAYER_SPEED = 4.8;
+        const WALL_SIZE = 60;
+        const WEB_RADIUS = 50;
+
+        const POLICE_SPAWN_RATE = 5000;
+        const POLICE_BASE_SPEED_RATIO = 0.4;
+        const POLICE_MAX_SPEED_RATIO = 0.8;
+        const POLICE_SPEED_GROWTH_INTERVAL = 5000;
+        const ARREST_DURATION = 5000;
+        const ATTACK_RADIUS = 70;
+        const ATTACK_COOLDOWN = 500;
+        const STUN_DURATION = 5000;
+        const DASH_DISTANCE = PLAYER_RADIUS * 2 * 5;
+
         const PlayerColor = {
             GREEN: '#22c55e',
             PINK: '#ec4899',
@@ -89,76 +76,40 @@
             BLACK: '#171717',
         };
 
-        const ABILITIES = {
-            DASH: { id: 'DASH', name: 'Dash', desc: 'Dash 5 body lengths forward.', cd: 10000, icon: <Zap /> },
-            INVISIBILITY: { id: 'INVISIBILITY', name: 'Stealth', desc: 'Invisible to police for 5s.', cd: 30000, icon: <Ghost /> },
-            FREEZE: { id: 'FREEZE', name: 'Freeze', desc: 'Stun all police for 2s.', cd: 40000, icon: <Snowflake /> },
-            WALL: { id: 'WALL', name: 'Barricade', desc: 'Drop a wall behind you.', cd: 20000, icon: <BrickWall /> },
-            WEB: { id: 'WEB', name: 'Spider Web', desc: 'Drop a slowing web behind you.', cd: 30000, icon: <Bug /> },
-            SPEED: { id: 'SPEED', name: 'Adrenaline', desc: 'Double speed for 5s.', cd: 60000, icon: <Zap className="text-yellow-400"/> },
-            SECOND_LIFE: { id: 'SECOND_LIFE', name: 'Second Chance', desc: 'Respawn once if eliminated.', cd: 0, passive: true, icon: <HeartPulse /> },
-            SHOCKER: { id: 'SHOCKER', name: 'Shocker', desc: 'Break free from arrest.', cd: 60000, icon: <Zap className="text-blue-400"/> },
+        const ABILITIES_DATA = {
+            DASH: { name: 'Dash', desc: 'Dash 5 body lengths forward.', cd: 10000 },
+            INVISIBILITY: { name: 'Stealth', desc: 'Invisible to police for 5s.', cd: 30000 },
+            FREEZE: { name: 'Freeze', desc: 'Stun all police for 2s.', cd: 40000 },
+            WALL: { name: 'Barricade', desc: 'Drop a PERMANENT wall behind you.', cd: 20000 },
+            WEB: { name: 'Spider Web', desc: 'Drop a PERMANENT slowing web.', cd: 30000 },
+            SPEED: { name: 'Adrenaline', desc: 'Double speed for 5s.', cd: 60000 },
+            SECOND_LIFE: { name: 'Second Chance', desc: 'Respawn once if eliminated.', cd: 0, passive: true },
+            SHOCKER: { name: 'Shocker', desc: 'Break free from arrest.', cd: 60000 },
         };
-
-        const CANVAS_WIDTH = 1200;
-        const CANVAS_HEIGHT = 800;
-        const PLAYER_SPEED = 4.8; 
-        const PLAYER_RADIUS = 15;
-        
-        // Police Constants
-        const POLICE_RADIUS = 16;
-        const POLICE_SPAWN_RATE = 5000; // ms
-        const POLICE_BASE_SPEED_RATIO = 0.4;
-        const POLICE_MAX_SPEED_RATIO = 0.8;
-        const POLICE_SPEED_GROWTH_INTERVAL = 5000;
-        const ARREST_DURATION = 5000; // ms wait before dragging
-        
-        // Combat Constants
-        const ATTACK_RADIUS = 70;
-        const ATTACK_COOLDOWN = 500; // ms visual
-        const STUN_DURATION = 5000;
-
-        // Ability Constants
-        const WALL_SIZE = 60;
-        const WEB_RADIUS = 50;
-        const DASH_DISTANCE = PLAYER_RADIUS * 2 * 5; // 5 body lengths
 
         const INITIAL_GAME_STATE = {
             players: [],
             police: [],
-            walls: [], // { id, x, y, createdAt }
-            webs: [], // { id, x, y, createdAt }
-            gameStatus: 'LOBBY', // LOBBY, ABILITY_SELECTION, COUNTDOWN, PLAYING, GAME_OVER
+            walls: [],
+            webs: [],
+            gameStatus: 'LOBBY',
             startTime: 0,
             survivalTime: 0,
             lastSpawnTime: 0,
             nextSpawnSide: 0,
-            countdownValue: 3,
+            countdownValue: 3
         };
 
-        const AVAILABLE_COLORS = [
-            { label: 'Green', value: PlayerColor.GREEN, bg: 'bg-green-500' },
-            { label: 'Pink', value: PlayerColor.PINK, bg: 'bg-pink-500' },
-            { label: 'Purple', value: PlayerColor.PURPLE, bg: 'bg-purple-500' },
-            { label: 'Black', value: PlayerColor.BLACK, bg: 'bg-neutral-900' },
-        ];
+        // --- UTILS ---
+        const distance = (x1, y1, x2, y2) => Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 
-        // --- GAME LOGIC ---
-        const distance = (x1, y1, x2, y2) => {
-            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-        };
-
-        // Rect-Circle collision for Walls
         const rectCircleColliding = (circle, rect) => {
             const distX = Math.abs(circle.x - rect.x - rect.w / 2);
             const distY = Math.abs(circle.y - rect.y - rect.h / 2);
-
             if (distX > (rect.w / 2 + circle.r)) return false;
             if (distY > (rect.h / 2 + circle.r)) return false;
-
-            if (distX <= (rect.w / 2)) return true; 
+            if (distX <= (rect.w / 2)) return true;
             if (distY <= (rect.h / 2)) return true;
-
             const dx = distX - rect.w / 2;
             const dy = distY - rect.h / 2;
             return (dx * dx + dy * dy <= (circle.r * circle.r));
@@ -189,20 +140,12 @@
             return pos;
         };
 
+        // --- PHYSICS ENGINE ---
         const updatePhysics = (gameState, inputs) => {
             const newState = { ...gameState };
             const now = Date.now();
 
-            // Pause logic during selection/countdown
-            if (newState.gameStatus === 'ABILITY_SELECTION') {
-                // Check if everyone has selected
-                const allSelected = newState.players.length > 0 && newState.players.every(p => p.selectedAbility);
-                if (allSelected) {
-                    newState.gameStatus = 'COUNTDOWN';
-                    newState.startTime = now; // Using startTime for countdown ref
-                }
-                return newState;
-            }
+            if (newState.gameStatus === 'ABILITY_SELECTION') return newState;
 
             if (newState.gameStatus === 'COUNTDOWN') {
                 const diff = now - newState.startTime;
@@ -211,60 +154,25 @@
                 else if (diff < 3000) newState.countdownValue = 1;
                 else {
                     newState.gameStatus = 'PLAYING';
-                    newState.startTime = now; // Reset real start time
+                    newState.startTime = now;
                     newState.lastSpawnTime = now;
                 }
                 return newState;
             }
 
-            // --- PLAYING LOGIC ---
+            if (newState.gameStatus !== 'PLAYING') return newState;
 
-            // 0. Cleanup Old Objects
-            // Removed Lifetime checks for Wall and Web - they are now permanent
-            // newState.walls = newState.walls.filter(w => now - w.createdAt < WALL_LIFETIME);
-            // newState.webs = newState.webs.filter(w => now - w.createdAt < WEB_LIFETIME);
-
-            // Dynamic Police Speed
-            const timePlayed = newState.survivalTime * 1000;
-            const speedStage = Math.min(10, Math.floor(timePlayed / POLICE_SPEED_GROWTH_INTERVAL));
-            const currentPoliceSpeedFactor = POLICE_BASE_SPEED_RATIO + (speedStage * 0.04);
-            const basePoliceSpeed = Math.min(PLAYER_SPEED * POLICE_MAX_SPEED_RATIO, PLAYER_SPEED * currentPoliceSpeedFactor);
-
-            // 1. Spawn Police
-            if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
-                newState.lastSpawnTime = now;
-                const edge = newState.nextSpawnSide;
-                let px, py;
-                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; }
-                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; }
-                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; }
-                else { px = -30; py = Math.random() * CANVAS_HEIGHT; }
-
-                newState.police.push({
-                    id: `police-${now}`,
-                    x: px,
-                    y: py,
-                    state: 'CHASING',
-                    targetId: null,
-                    stunUntil: 0,
-                    arrestStartTime: 0,
-                    draggingPlayerId: null
-                });
-                newState.nextSpawnSide = Math.floor(Math.random() * 4);
-            }
-
-            // 2. Update Players
+            // 1. Update Players
             newState.players = newState.players.map(player => {
                 if (player.isEliminated) return player;
-                
+
                 const input = inputs[player.peerId];
                 if (!input) return player;
 
-                // Captured logic overrides movement
+                // Captured / Shocker
                 if (player.isCaptured) {
-                    // Shocker Ability
                     if (player.selectedAbility === 'SHOCKER' && input.ability && (!player.abilityCooldown || now > player.abilityCooldown)) {
-                        player.abilityCooldown = now + ABILITIES.SHOCKER.cd;
+                        player.abilityCooldown = now + ABILITIES_DATA.SHOCKER.cd;
                         player.isCaptured = false;
                         const cop = newState.police.find(p => p.id === player.capturedBy);
                         if (cop) {
@@ -277,17 +185,11 @@
                     return player;
                 }
 
-                // --- Movement Calculation ---
+                // Movement
                 let currentSpeed = PLAYER_SPEED;
-                
-                // Web Slowdown
                 const inWeb = newState.webs.some(w => distance(player.x, player.y, w.x, w.y) < WEB_RADIUS);
                 if (inWeb) currentSpeed *= 0.2;
-
-                // Speed Boost Ability Effect
-                if (player.speedBoostUntil && now < player.speedBoostUntil) {
-                    currentSpeed *= 2;
-                }
+                if (player.speedBoostUntil && now < player.speedBoostUntil) currentSpeed *= 2;
 
                 let dx = 0;
                 let dy = 0;
@@ -301,78 +203,67 @@
                     dy *= 0.7071;
                 }
 
-                // Update Direction (Vector) if moving
-                let dirX = player.dirX || 0;
-                let dirY = player.dirY || 1;
+                // Direction
+                let dirX = player.dirX;
+                let dirY = player.dirY;
                 if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
                     const mag = Math.sqrt(dx*dx + dy*dy);
                     dirX = dx / mag;
                     dirY = dy / mag;
                 }
 
-                // --- Ability Activation ---
+                // Abilities
                 if (input.ability && player.selectedAbility && (!player.abilityCooldown || now > player.abilityCooldown)) {
-                    const ability = ABILITIES[player.selectedAbility];
+                    const ab = ABILITIES_DATA[player.selectedAbility];
                     let activated = false;
 
-                    if (ability.id === 'DASH') {
-                        // Dash Logic: Move 5 body lengths instantly, checking bounds
+                    if (player.selectedAbility === 'DASH') {
                         let dashX = player.x + dirX * DASH_DISTANCE;
                         let dashY = player.y + dirY * DASH_DISTANCE;
                         dashX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, dashX));
                         dashY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, dashY));
-                        
                         player.x = dashX; 
                         player.y = dashY;
                         activated = true;
                     }
-                    else if (ability.id === 'INVISIBILITY') {
+                    else if (player.selectedAbility === 'INVISIBILITY') {
                         player.invisibleUntil = now + 5000;
                         activated = true;
                     }
-                    else if (ability.id === 'FREEZE') {
-                        newState.police.forEach(p => {
-                            p.state = 'STUNNED';
-                            p.stunUntil = now + 2000;
-                        });
+                    else if (player.selectedAbility === 'FREEZE') {
+                        newState.police.forEach(p => { p.state = 'STUNNED'; p.stunUntil = now + 2000; });
                         activated = true;
                     }
-                    else if (ability.id === 'WALL') {
-                        // Spawn wall behind
+                    else if (player.selectedAbility === 'WALL') {
                         newState.walls.push({
                             id: `wall-${now}-${player.peerId}`,
                             x: player.x - (dirX * 40) - (WALL_SIZE/2),
                             y: player.y - (dirY * 40) - (WALL_SIZE/2),
                             w: WALL_SIZE,
-                            h: WALL_SIZE,
-                            createdAt: now
+                            h: WALL_SIZE
                         });
                         activated = true;
                     }
-                    else if (ability.id === 'WEB') {
+                    else if (player.selectedAbility === 'WEB') {
                         newState.webs.push({
                             id: `web-${now}-${player.peerId}`,
                             x: player.x - (dirX * 40),
-                            y: player.y - (dirY * 40),
-                            createdAt: now
+                            y: player.y - (dirY * 40)
                         });
                         activated = true;
                     }
-                    else if (ability.id === 'SPEED') {
+                    else if (player.selectedAbility === 'SPEED') {
                         player.speedBoostUntil = now + 5000;
                         activated = true;
                     }
-                    // Passive abilities (Second Life, Shocker) handled elsewhere
 
-                    if (activated) {
-                        player.abilityCooldown = now + ability.cd;
-                    }
+                    if (activated) player.abilityCooldown = now + ab.cd;
                 }
 
                 let newX = player.x + dx;
                 let newY = player.y + dy;
 
-                // Wall Collision for Player
+                // Wall Collision
                 for (const w of newState.walls) {
                     if (rectCircleColliding({x: newX, y: player.y, r: PLAYER_RADIUS}, w)) newX = player.x;
                     if (rectCircleColliding({x: player.x, y: newY, r: PLAYER_RADIUS}, w)) newY = player.y;
@@ -381,10 +272,9 @@
                 newX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, newX));
                 newY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, newY));
 
-                // Attack Logic (Spacebar)
-                let lastAttack = player.lastAttack || 0;
-                if (input.action && now - lastAttack > ATTACK_COOLDOWN) {
-                    lastAttack = now;
+                // Combat
+                if (input.action && now - player.lastAttack > ATTACK_COOLDOWN) {
+                    player.lastAttack = now;
                     newState.police.forEach(cop => {
                         if ((cop.state === 'DRAGGING' || cop.state === 'ARRESTING') && distance(newX, newY, cop.x, cop.y) < ATTACK_RADIUS) {
                             cop.state = 'STUNNED';
@@ -399,34 +289,55 @@
                     });
                 }
 
-                return { ...player, x: newX, y: newY, dirX, dirY, lastAttack };
+                return { ...player, x: newX, y: newY, dirX, dirY };
             });
 
-            // 2.5 Player-Player Collision
+            // 2. Player-Player Collision
             for(let i=0; i < newState.players.length; i++) {
                 for(let j=i+1; j < newState.players.length; j++) {
                     const p1 = newState.players[i];
                     const p2 = newState.players[j];
                     if (p1.isEliminated || p2.isEliminated || p1.isCaptured || p2.isCaptured) continue;
-
                     const dx = p1.x - p2.x;
                     const dy = p1.y - p2.y;
                     const dist = Math.sqrt(dx*dx + dy*dy);
-                    const minDist = PLAYER_RADIUS * 2;
-
-                    if (dist < minDist && dist > 0) {
-                        const overlap = (minDist - dist) / 2;
-                        const offsetX = (dx / dist) * overlap;
-                        const offsetY = (dy / dist) * overlap;
-                        p1.x += offsetX; p1.y += offsetY;
-                        p2.x -= offsetX; p2.y -= offsetY;
+                    if (dist < PLAYER_RADIUS * 2 && dist > 0) {
+                        const overlap = (PLAYER_RADIUS * 2 - dist) / 2;
+                        const offX = (dx / dist) * overlap;
+                        const offY = (dy / dist) * overlap;
+                        p1.x += offX; p1.y += offY;
+                        p2.x -= offX; p2.y -= offY;
                     }
                 }
             }
 
-            // 3. Update Police
+            // 3. Spawn Police
+            if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
+                newState.lastSpawnTime = now;
+                const edge = newState.nextSpawnSide;
+                let px, py;
+                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; }
+                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; }
+                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; }
+                else { px = -30; py = Math.random() * CANVAS_HEIGHT; }
+
+                newState.police.push({
+                    id: `police-${now}`,
+                    x: px, y: py,
+                    state: 'CHASING',
+                    stunUntil: 0, arrestStartTime: 0, draggingPlayerId: null
+                });
+                newState.nextSpawnSide = Math.floor(Math.random() * 4);
+            }
+
+            // 4. Update Police
             const activePlayers = newState.players.filter(p => !p.isEliminated && !p.isCaptured);
             const visiblePlayers = activePlayers.filter(p => !p.invisibleUntil || now > p.invisibleUntil);
+            
+            const timePlayed = newState.survivalTime * 1000;
+            const speedStage = Math.min(10, Math.floor(timePlayed / POLICE_SPEED_GROWTH_INTERVAL));
+            const currentPoliceSpeedFactor = POLICE_BASE_SPEED_RATIO + (speedStage * 0.04);
+            const basePoliceSpeed = Math.min(PLAYER_SPEED * POLICE_MAX_SPEED_RATIO, PLAYER_SPEED * currentPoliceSpeedFactor);
 
             newState.police = newState.police.map(cop => {
                 if (cop.state === 'STUNNED') {
@@ -435,10 +346,7 @@
                 }
 
                 let speed = basePoliceSpeed;
-                // Web Slowdown for Police
-                if (newState.webs.some(w => distance(cop.x, cop.y, w.x, w.y) < WEB_RADIUS)) {
-                    speed *= 0.2;
-                }
+                if (newState.webs.some(w => distance(cop.x, cop.y, w.x, w.y) < WEB_RADIUS)) speed *= 0.2;
 
                 let vx = 0, vy = 0;
 
@@ -449,12 +357,11 @@
                 }
                 else if (cop.state === 'ARRESTING') {
                     if (now - cop.arrestStartTime > ARREST_DURATION) cop.state = 'DRAGGING';
-                    // Snap victim
                     if (cop.draggingPlayerId) {
-                         const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
-                         if (vIdx !== -1) { newState.players[vIdx].x = cop.x; newState.players[vIdx].y = cop.y; }
+                        const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
+                        if (vIdx !== -1) { newState.players[vIdx].x = cop.x; newState.players[vIdx].y = cop.y; }
                     }
-                    return cop; 
+                    return cop;
                 }
                 else if (cop.state === 'DRAGGING') {
                     const distTop = cop.y;
@@ -462,9 +369,8 @@
                     const distLeft = cop.x;
                     const distRight = CANVAS_WIDTH - cop.x;
                     const minDist = Math.min(distTop, distBottom, distLeft, distRight);
+                    speed *= 0.5;
 
-                    speed = speed * 0.5; 
-                    
                     if (minDist === distTop) vy = -speed;
                     else if (minDist === distBottom) vy = speed;
                     else if (minDist === distLeft) vx = -speed;
@@ -473,20 +379,16 @@
                     if (cop.draggingPlayerId) {
                         const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
                         if (vIdx !== -1) {
-                            newState.players[vIdx].x = cop.x;
-                            newState.players[vIdx].y = cop.y;
-
+                            const victim = newState.players[vIdx];
+                            victim.x = cop.x; victim.y = cop.y;
+                            
                             if (cop.x < 0 || cop.x > CANVAS_WIDTH || cop.y < 0 || cop.y > CANVAS_HEIGHT) {
-                                // Check Second Life
-                                const victim = newState.players[vIdx];
                                 if (victim.selectedAbility === 'SECOND_LIFE' && !victim.secondLifeUsed) {
                                     victim.secondLifeUsed = true;
                                     victim.isCaptured = false;
                                     victim.capturedBy = null;
-                                    // Respawn safe
                                     const pos = getSafeSpawn(newState.players);
-                                    victim.x = pos.x;
-                                    victim.y = pos.y;
+                                    victim.x = pos.x; victim.y = pos.y;
                                     cop.state = 'EXITING';
                                     cop.draggingPlayerId = null;
                                 } else {
@@ -496,14 +398,12 @@
                                     cop.draggingPlayerId = null;
                                 }
                             }
-                        } else { cop.state = 'CHASING'; }
-                    } else { cop.state = 'CHASING'; }
+                        } else cop.state = 'CHASING';
+                    } else cop.state = 'CHASING';
                 }
                 else if (cop.state === 'CHASING') {
                     let nearest = null;
                     let minD = Infinity;
-
-                    // AI targets VISIBLE players
                     visiblePlayers.forEach(p => {
                         const d = distance(cop.x, cop.y, p.x, p.y);
                         if (d < minD) { minD = d; nearest = p; }
@@ -513,7 +413,7 @@
                         const angle = Math.atan2(nearest.y - cop.y, nearest.x - cop.x);
                         vx = Math.cos(angle) * speed;
                         vy = Math.sin(angle) * speed;
-
+                        
                         if (distance(cop.x, cop.y, nearest.x, nearest.y) < (POLICE_RADIUS + PLAYER_RADIUS)) {
                             cop.state = 'ARRESTING';
                             cop.arrestStartTime = now;
@@ -522,20 +422,18 @@
                             if (pIdx !== -1) {
                                 newState.players[pIdx].isCaptured = true;
                                 newState.players[pIdx].capturedBy = cop.id;
-                                newState.players[pIdx].x = cop.x; 
+                                newState.players[pIdx].x = cop.x;
                                 newState.players[pIdx].y = cop.y;
                             }
-                            vx = 0; vy = 0; 
+                            vx=0; vy=0;
                         }
                     } else {
-                        // Wander randomly or to center
                         const angle = Math.atan2(CANVAS_HEIGHT/2 - cop.y, CANVAS_WIDTH/2 - cop.x);
-                        vx = Math.cos(angle) * (speed * 0.5);
-                        vy = Math.sin(angle) * (speed * 0.5);
+                        vx = Math.cos(angle) * (speed*0.5);
+                        vy = Math.sin(angle) * (speed*0.5);
                     }
                 }
 
-                // Wall Collision for Police
                 let nextX = cop.x + vx;
                 let nextY = cop.y + vy;
                 for (const w of newState.walls) {
@@ -546,7 +444,7 @@
                 return { ...cop, x: nextX, y: nextY };
             });
 
-            // 4. Police Collision
+            // 5. Police Collision
             for(let iter=0; iter<2; iter++) {
                 for (let i = 0; i < newState.police.length; i++) {
                     for (let j = i + 1; j < newState.police.length; j++) {
@@ -555,18 +453,18 @@
                         const dx = p1.x - p2.x;
                         const dy = p1.y - p2.y;
                         const dist = Math.sqrt(dx*dx + dy*dy);
-                        const minDist = POLICE_RADIUS * 2;
-                        if (dist < minDist && dist > 0) {
-                            const overlap = (minDist - dist) / 2;
+                        if (dist < POLICE_RADIUS * 2 && dist > 0) {
+                            const overlap = (POLICE_RADIUS*2 - dist)/2;
                             const ox = (dx/dist)*overlap; const oy = (dy/dist)*overlap;
-                            p1.x += ox; p1.y += oy; p2.x -= ox; p2.y -= oy;
+                            p1.x+=ox; p1.y+=oy; p2.x-=ox; p2.y-=oy;
                         }
                     }
                 }
             }
 
+            // Cleanup
             newState.police = newState.police.filter(cop => {
-                if (cop.state === 'EXITING') return (cop.x > -100 && cop.x < CANVAS_WIDTH + 100 && cop.y > -100 && cop.y < CANVAS_HEIGHT + 100);
+                if (cop.state === 'EXITING') return (cop.x > -100 && cop.x < CANVAS_WIDTH+100 && cop.y > -100 && cop.y < CANVAS_HEIGHT+100);
                 return true;
             });
 
@@ -577,234 +475,24 @@
             return newState;
         };
 
-        // --- COMPONENT: ABILITY SELECTOR ---
-        const AbilitySelector = ({ onSelect, selected }) => {
-            const [options, setOptions] = useState([]);
+        // --- COMPONENTS ---
 
-            useEffect(() => {
-                const all = Object.values(ABILITIES);
-                // Shuffle and pick 3
-                for (let i = all.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [all[i], all[j]] = [all[j], all[i]];
-                }
-                setOptions(all.slice(0, 3));
-            }, []);
-
-            if (options.length === 0) return null;
-
-            return (
-                <div className="absolute inset-0 bg-slate-900/90 z-50 flex flex-col items-center justify-center p-8 text-white">
-                    <h2 className="text-4xl font-bold mb-2 text-yellow-400">CHOOSE YOUR SUPER POWER</h2>
-                    <p className="text-slate-400 mb-8">Press <span className="font-bold text-white bg-slate-700 px-2 rounded">E</span> to activate in game</p>
-                    
-                    <div className="flex gap-6 max-w-5xl justify-center w-full">
-                        {options.map(ability => (
-                            <button 
-                                key={ability.id}
-                                onClick={() => onSelect(ability.id)}
-                                className={`flex flex-col items-center p-6 w-64 rounded-xl border-2 transition-all ${
-                                    selected === ability.id 
-                                    ? 'bg-blue-900/50 border-blue-400 scale-105 shadow-xl shadow-blue-500/20' 
-                                    : 'bg-slate-800 border-slate-700 hover:bg-slate-700 hover:border-slate-500'
-                                }`}
-                            >
-                                <div className={`mb-4 p-4 rounded-full ${selected === ability.id ? 'bg-blue-500' : 'bg-slate-600'}`}>
-                                    {ability.icon}
-                                </div>
-                                <h3 className="font-bold text-xl mb-2">{ability.name}</h3>
-                                <p className="text-sm text-slate-400 text-center h-12 leading-tight">{ability.desc}</p>
-                                {ability.passive && <span className="mt-4 text-[10px] uppercase tracking-wider font-bold text-green-400 bg-green-900/30 px-2 py-0.5 rounded">Passive</span>}
-                                {!ability.passive && <span className="mt-4 text-[10px] text-slate-500">CD: {ability.cd/1000}s</span>}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="mt-12 h-8">
-                         {selected ? (
-                             <div className="flex items-center gap-2 text-blue-300 animate-pulse">
-                                <Loader2 className="animate-spin" size={20}/> Waiting for team...
-                             </div>
-                         ) : <div className="text-slate-500">Select a power to lock in</div>}
-                    </div>
-                </div>
-            );
+        const AbilityIcon = ({ id, className }) => {
+            switch(id) {
+                case 'DASH': return <Zap className={className} />;
+                case 'INVISIBILITY': return <Ghost className={className} />;
+                case 'FREEZE': return <Snowflake className={className} />;
+                case 'WALL': return <Shield className={className} />;
+                case 'WEB': return <Bug className={className} />;
+                case 'SPEED': return <Zap className={`text-yellow-400 ${className}`} />;
+                case 'SECOND_LIFE': return <HeartPulse className={className} />;
+                case 'SHOCKER': return <Zap className={`text-blue-400 ${className}`} />;
+                default: return null;
+            }
         };
 
-        // --- CANVAS COMPONENT ---
         const GameCanvas = ({ gameState, myPeerId }) => {
             const canvasRef = useRef(null);
-
-            const drawSpawnWarning = (ctx, side) => {
-                const time = Date.now();
-                const opacity = 0.2 + (Math.sin(time / 200) + 1) * 0.2; 
-                ctx.fillStyle = `rgba(239, 68, 68, ${opacity})`;
-                const barSize = 20;
-                if (side === 0) ctx.fillRect(0, 0, CANVAS_WIDTH, barSize);
-                else if (side === 1) ctx.fillRect(CANVAS_WIDTH - barSize, 0, barSize, CANVAS_HEIGHT);
-                else if (side === 2) ctx.fillRect(0, CANVAS_HEIGHT - barSize, CANVAS_WIDTH, barSize);
-                else if (side === 3) ctx.fillRect(0, 0, barSize, CANVAS_HEIGHT);
-            };
-
-            const drawWalls = (ctx, walls) => {
-                ctx.fillStyle = '#78716c'; // Stone color
-                ctx.strokeStyle = '#44403c';
-                ctx.lineWidth = 3;
-                walls.forEach(w => {
-                    ctx.fillRect(w.x, w.y, w.w, w.h);
-                    ctx.strokeRect(w.x, w.y, w.w, w.h);
-                    // Brick details
-                    ctx.beginPath();
-                    ctx.moveTo(w.x, w.y + w.h/2); ctx.lineTo(w.x + w.w, w.y + w.h/2);
-                    ctx.moveTo(w.x + w.w/2, w.y); ctx.lineTo(w.x + w.w/2, w.y + w.h/2);
-                    ctx.stroke();
-                });
-            };
-
-            const drawWebs = (ctx, webs) => {
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.lineWidth = 1;
-                webs.forEach(w => {
-                    ctx.save();
-                    ctx.translate(w.x, w.y);
-                    ctx.beginPath();
-                    for(let i=0; i<8; i++) {
-                        const angle = (i/8)*Math.PI*2;
-                        ctx.moveTo(0,0);
-                        ctx.lineTo(Math.cos(angle)*WEB_RADIUS, Math.sin(angle)*WEB_RADIUS);
-                    }
-                    ctx.arc(0,0, WEB_RADIUS/2, 0, Math.PI*2);
-                    ctx.arc(0,0, WEB_RADIUS, 0, Math.PI*2);
-                    ctx.stroke();
-                    ctx.restore();
-                });
-            };
-
-            const drawPlayer = (ctx, player, now) => {
-                if (player.isEliminated) return; 
-
-                ctx.save();
-                ctx.translate(player.x, player.y);
-
-                // Invisibility Effect
-                if (player.invisibleUntil && now < player.invisibleUntil) {
-                    ctx.globalAlpha = 0.4;
-                }
-
-                // Speed Boost Effect
-                if (player.speedBoostUntil && now < player.speedBoostUntil) {
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = 'yellow';
-                }
-
-                // Label
-                ctx.fillStyle = 'rgba(255,255,255,0.8)';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(player.name, 0, -25);
-                
-                if (player.peerId === myPeerId) {
-                    ctx.fillStyle = '#FFD700';
-                    ctx.beginPath();
-                    ctx.moveTo(0, -35);
-                    ctx.lineTo(-5, -45);
-                    ctx.lineTo(5, -45);
-                    ctx.fill();
-                }
-
-                // Attack Animation
-                if (player.lastAttack && (now - player.lastAttack < 300)) {
-                    const progress = (now - player.lastAttack) / 300;
-                    ctx.save();
-                    ctx.rotate(progress * Math.PI); 
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-                    ctx.beginPath();
-                    ctx.arc(25, 0, 10, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
-                }
-
-                // Captured State
-                if (player.isCaptured) {
-                    ctx.strokeStyle = 'red';
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.arc(0,0, PLAYER_RADIUS + 5, 0, Math.PI*2);
-                    ctx.stroke();
-                    ctx.fillStyle = 'white';
-                    ctx.fillText("HELP!", 0, -40);
-                }
-
-                // Body
-                ctx.fillStyle = player.color;
-                ctx.beginPath();
-                ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // Direction Indicator
-                if (player.dirX || player.dirY) {
-                    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(0,0);
-                    ctx.lineTo(player.dirX * 20, player.dirY * 20);
-                    ctx.stroke();
-                }
-
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = 'white';
-                ctx.stroke();
-
-                ctx.restore();
-            };
-
-            const drawPolice = (ctx, cop, now) => {
-                ctx.save();
-                ctx.translate(cop.x, cop.y);
-
-                ctx.fillStyle = '#1e3a8a';
-                ctx.beginPath();
-                ctx.arc(0, 0, POLICE_RADIUS, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                // Hat Brim
-                ctx.fillStyle = '#000';
-                ctx.beginPath();
-                ctx.ellipse(0, -5, 14, 8, 0, Math.PI, 0);
-                ctx.fill();
-
-                // Badge
-                ctx.fillStyle = '#fbbf24';
-                ctx.beginPath();
-                ctx.moveTo(0, -2); ctx.lineTo(3, 3); ctx.lineTo(0, 6); ctx.lineTo(-3, 3);
-                ctx.fill();
-
-                if (cop.state === 'STUNNED') {
-                    ctx.fillStyle = 'yellow';
-                    const angle = (now / 200) % (Math.PI * 2);
-                    for(let i=0; i<3; i++) {
-                        const a = angle + (i * (Math.PI*2/3));
-                        ctx.fillText("★", Math.cos(a)*20, Math.sin(a)*20 - 10);
-                    }
-                }
-
-                if (cop.state === 'ARRESTING') {
-                    const remaining = Math.max(0, ARREST_DURATION - (now - cop.arrestStartTime));
-                    const secs = Math.ceil(remaining / 1000);
-                    ctx.fillStyle = 'red';
-                    ctx.font = 'bold 20px monospace';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(secs.toString(), 0, -25);
-                    ctx.strokeStyle = 'red';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.arc(0, 0, POLICE_RADIUS + 8, 0, (remaining / ARREST_DURATION) * Math.PI * 2);
-                    ctx.stroke();
-                }
-                ctx.restore();
-            };
 
             useEffect(() => {
                 const canvas = canvasRef.current;
@@ -828,21 +516,38 @@
 
                     // Safe Zone
                     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                    ctx.lineWidth = 2;
-                    ctx.setLineDash([10, 10]);
+                    ctx.lineWidth = 2; ctx.setLineDash([10, 10]);
                     ctx.strokeRect(CANVAS_WIDTH * 0.25, CANVAS_HEIGHT * 0.25, CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5);
                     ctx.setLineDash([]);
 
-                    drawWalls(ctx, gameState.walls);
-                    drawWebs(ctx, gameState.webs);
+                    // Walls
+                    ctx.fillStyle = '#78716c'; ctx.strokeStyle = '#44403c'; ctx.lineWidth = 3;
+                    gameState.walls.forEach(w => {
+                        ctx.fillRect(w.x, w.y, w.w, w.h); ctx.strokeRect(w.x, w.y, w.w, w.h);
+                        ctx.beginPath(); ctx.moveTo(w.x, w.y+w.h/2); ctx.lineTo(w.x+w.w, w.y+w.h/2); ctx.stroke();
+                    });
 
+                    // Webs
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; ctx.lineWidth = 1;
+                    gameState.webs.forEach(w => {
+                        ctx.save(); ctx.translate(w.x, w.y); ctx.beginPath();
+                        for(let i=0; i<8; i++) {
+                            const angle = (i/8)*Math.PI*2;
+                            ctx.moveTo(0,0); ctx.lineTo(Math.cos(angle)*WEB_RADIUS, Math.sin(angle)*WEB_RADIUS);
+                        }
+                        ctx.arc(0,0, WEB_RADIUS/2, 0, Math.PI*2); ctx.arc(0,0, WEB_RADIUS, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+                    });
+
+                    // Spawners
                     if (gameState.gameStatus === 'PLAYING') {
-                        drawSpawnWarning(ctx, gameState.nextSpawnSide);
+                         const side = gameState.nextSpawnSide;
+                         ctx.fillStyle = `rgba(239, 68, 68, 0.4)`;
+                         const barSize = 20;
+                         if (side === 0) ctx.fillRect(0, 0, CANVAS_WIDTH, barSize);
+                         else if (side === 1) ctx.fillRect(CANVAS_WIDTH - barSize, 0, barSize, CANVAS_HEIGHT);
+                         else if (side === 2) ctx.fillRect(0, CANVAS_HEIGHT - barSize, CANVAS_WIDTH, barSize);
+                         else if (side === 3) ctx.fillRect(0, 0, barSize, CANVAS_HEIGHT);
                     }
-
-                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)';
-                    ctx.lineWidth = 10;
-                    ctx.strokeRect(0,0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
                     const entities = [
                         ...gameState.players.map(p => ({ type: 'player', y: p.y, obj: p })),
@@ -851,72 +556,68 @@
                     entities.sort((a, b) => a.y - b.y);
 
                     entities.forEach(ent => {
-                        if (ent.type === 'player') drawPlayer(ctx, ent.obj, now);
-                        else drawPolice(ctx, ent.obj, now);
+                        const obj = ent.obj;
+                        ctx.save(); ctx.translate(obj.x, obj.y);
+                        if (ent.type === 'player') {
+                            if (!obj.isEliminated) {
+                                if (obj.invisibleUntil && now < obj.invisibleUntil) ctx.globalAlpha = 0.4;
+                                ctx.fillStyle = 'white'; ctx.font = '12px Arial'; ctx.textAlign = 'center'; ctx.fillText(obj.name, 0, -25);
+                                if (obj.peerId === myPeerId) {
+                                    ctx.fillStyle = '#FFD700'; ctx.beginPath(); ctx.moveTo(0, -35); ctx.lineTo(-5, -45); ctx.lineTo(5, -45); ctx.fill();
+                                }
+                                if (obj.isCaptured) {
+                                    ctx.strokeStyle = 'red'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0,0, PLAYER_RADIUS+5, 0, Math.PI*2); ctx.stroke();
+                                    ctx.fillStyle = 'white'; ctx.fillText("HELP!", 0, -40);
+                                }
+                                ctx.fillStyle = obj.color; ctx.beginPath(); ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI*2); ctx.fill();
+                                ctx.lineWidth = 2; ctx.strokeStyle = 'white'; ctx.stroke();
+                            }
+                        } else {
+                            ctx.fillStyle = '#1e3a8a'; ctx.beginPath(); ctx.arc(0, 0, POLICE_RADIUS, 0, Math.PI*2); ctx.fill();
+                            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                            ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, -5, 14, 8, 0, Math.PI, 0); ctx.fill();
+                            ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.moveTo(0, -2); ctx.lineTo(3, 3); ctx.lineTo(0, 6); ctx.lineTo(-3, 3); ctx.fill();
+                            if (obj.state === 'STUNNED') { ctx.fillStyle = 'yellow'; ctx.fillText("★", 0, -20); }
+                            if (obj.state === 'ARRESTING') {
+                                const remaining = Math.max(0, 5000 - (now - obj.arrestStartTime));
+                                ctx.strokeStyle = 'red'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0,0, POLICE_RADIUS+8, 0, (remaining/5000)*Math.PI*2); ctx.stroke();
+                            }
+                        }
+                        ctx.restore();
                     });
-                    
-                    // HUD
-                    ctx.textAlign = 'right';
-                    ctx.fillStyle = 'white';
-                    ctx.font = 'bold 24px monospace';
+
+                    ctx.textAlign = 'right'; ctx.fillStyle = 'white'; ctx.font = 'bold 24px monospace';
                     ctx.fillText(`SURVIVED: ${gameState.survivalTime.toFixed(1)}s`, CANVAS_WIDTH - 20, 40);
 
-                    ctx.textAlign = 'left';
-                    ctx.font = '16px Arial';
-                    ctx.fillStyle = '#cbd5e1';
-                    ctx.fillText("SPACE: Attack/Rescue", 20, 40);
-
                     if (gameState.gameStatus === 'GAME_OVER') {
-                        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                        ctx.fillStyle = '#ef4444';
-                        ctx.font = 'bold 60px Arial';
-                        ctx.textAlign = 'center';
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        ctx.fillStyle = '#ef4444'; ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center';
                         ctx.fillText("BUSTED!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-                        ctx.fillStyle = 'white';
-                        ctx.font = '30px monospace';
-                        ctx.fillText(`Total Time: ${gameState.survivalTime.toFixed(2)}s`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
                     }
 
                     if (gameState.gameStatus === 'COUNTDOWN') {
-                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                        ctx.fillStyle = '#fbbf24';
-                        ctx.font = 'bold 120px monospace';
-                        ctx.textAlign = 'center';
-                        ctx.fillText(gameState.countdownValue, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-                        ctx.font = '30px Arial';
-                        ctx.fillStyle = 'white';
-                        ctx.fillText("GET READY", CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 60);
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 120px monospace'; ctx.textAlign = 'center';
+                        ctx.fillText(gameState.countdownValue.toString(), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
                     }
                 };
                 render();
             }, [gameState, myPeerId]);
 
-            return (
-                <canvas 
-                ref={canvasRef} 
-                width={CANVAS_WIDTH} 
-                height={CANVAS_HEIGHT} 
-                className="rounded-lg shadow-2xl cursor-crosshair touch-none border-4 border-slate-700"
-                />
-            );
+            return <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="rounded-lg shadow-2xl cursor-crosshair border-4 border-slate-700" />;
         };
 
-        // --- APP COMPONENT ---
         const App = () => {
             const [mode, setMode] = useState('MENU');
             const [myPeerId, setMyPeerId] = useState('');
             const [isHost, setIsHost] = useState(false);
-            
             const [playerName, setPlayerName] = useState('');
             const [selectedColor, setSelectedColor] = useState(null);
             const [hostIdInput, setHostIdInput] = useState('');
-            const [joinError, setJoinError] = useState('');
             const [isConnecting, setIsConnecting] = useState(false);
-            const [statusMsg, setStatusMsg] = useState('');
-
+            const [abilityOptions, setAbilityOptions] = useState([]);
             const [selectedAbility, setSelectedAbility] = useState(null);
+            const [errorMsg, setErrorMsg] = useState('');
 
             const gameStateRef = useRef(JSON.parse(JSON.stringify(INITIAL_GAME_STATE)));
             const [renderedGameState, setRenderedGameState] = useState(INITIAL_GAME_STATE);
@@ -926,73 +627,69 @@
             const isHostRef = useRef(false);
             const hostIdRef = useRef('');
             const requestRef = useRef();
-            
             const inputsRef = useRef({});
             const myInputRef = useRef({ up: false, down: false, left: false, right: false, action: false, ability: false });
             const keysPressed = useRef(new Set());
 
+            const COLORS = [
+                { label: 'Green', value: PlayerColor.GREEN, bg: 'bg-green-500' },
+                { label: 'Pink', value: PlayerColor.PINK, bg: 'bg-pink-500' },
+                { label: 'Purple', value: PlayerColor.PURPLE, bg: 'bg-purple-500' },
+                { label: 'Black', value: PlayerColor.BLACK, bg: 'bg-neutral-900' },
+            ];
+
             useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
-                const hostParam = params.get('host');
-                if (hostParam) setHostIdInput(hostParam);
-                return () => {
-                    if (peerRef.current) peerRef.current.destroy();
-                    if (requestRef.current) cancelAnimationFrame(requestRef.current);
-                };
+                const gameId = params.get('game');
+                if (gameId) {
+                    setHostIdInput(gameId);
+                }
+
+                const all = Object.keys(ABILITIES_DATA);
+                const shuffled = all.sort(() => 0.5 - Math.random());
+                setAbilityOptions(shuffled.slice(0, 3));
             }, []);
 
             const initializePeer = async () => {
-                return new Promise((resolve, reject) => {
-                    setStatusMsg('Initializing Network...');
-                    const newPeer = new window.Peer({
-                        debug: 1,
-                        config: {
-                            iceServers: [
-                                { urls: 'stun:stun.l.google.com:19302' },
-                                { urls: 'stun:stun1.l.google.com:19302' }
-                            ]
-                        }
+                if (peerRef.current) return peerRef.current;
+                return new Promise((resolve) => {
+                    const newPeer = new Peer({ config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } });
+                    newPeer.on('open', (id) => { 
+                        setMyPeerId(id); 
+                        peerRef.current = newPeer; 
+                        resolve(newPeer); 
                     });
-                    newPeer.on('open', (id) => {
-                        setMyPeerId(id);
-                        peerRef.current = newPeer;
-                        resolve(newPeer);
-                    });
+                    newPeer.on('connection', handleIncomingConnection);
                     newPeer.on('error', (err) => {
-                        setJoinError("Connection Failed.");
+                        console.error('Peer Error', err);
+                        setErrorMsg('Connection error: ' + err.type);
                         setIsConnecting(false);
                     });
-                    newPeer.on('connection', (conn) => handleIncomingConnection(conn));
                 });
             };
 
             const createGame = async () => {
                 if (!playerName || !selectedColor) return;
                 setIsConnecting(true);
-                try {
-                    const peer = await initializePeer();
-                    setIsHost(true);
-                    isHostRef.current = true;
-                    setMode('LOBBY');
-
-                    const pos = getSafeSpawn([]);
-                    const hostPlayer = {
-                        id: peer.id, peerId: peer.id, name: playerName, color: selectedColor,
-                        x: pos.x, y: pos.y, isHost: true, isCaptured: false, isEliminated: false,
-                        capturedBy: null, lastAttack: 0, selectedAbility: null, abilityCooldown: 0,
-                        dirX: 0, dirY: 1
-                    };
-
-                    gameStateRef.current = { ...INITIAL_GAME_STATE, players: [hostPlayer], nextSpawnSide: Math.floor(Math.random() * 4) };
-                    setRenderedGameState({...gameStateRef.current});
-                } catch (e) { setJoinError("Failed to host"); } finally { setIsConnecting(false); }
+                const peer = await initializePeer();
+                setIsHost(true); isHostRef.current = true; setMode('LOBBY');
+                const pos = getSafeSpawn([]);
+                const hostPlayer = {
+                    id: peer.id, peerId: peer.id, name: playerName, color: selectedColor,
+                    x: pos.x, y: pos.y, isHost: true, dirX: 0, dirY: 1,
+                    isCaptured: false, capturedBy: null, isEliminated: false, lastAttack: 0,
+                    selectedAbility: null, abilityCooldown: 0
+                };
+                gameStateRef.current = { ...INITIAL_GAME_STATE, players: [hostPlayer], nextSpawnSide: Math.floor(Math.random()*4) };
+                setRenderedGameState({...gameStateRef.current});
+                setIsConnecting(false);
             };
 
             const handleIncomingConnection = (conn) => {
                 conn.on('open', () => {
                     connectionsRef.current.set(conn.peer, conn);
-                    conn.send({ type: 'GAME_STATE', payload: gameStateRef.current });
-                    conn.on('data', (data) => handleNetworkMessage(conn.peer, data));
+                    // We don't send state yet, wait for Join Request
+                    conn.on('data', (data) => handleNetworkMessage(conn.peer, data, conn));
                     conn.on('close', () => {
                         connectionsRef.current.delete(conn.peer);
                         gameStateRef.current.players = gameStateRef.current.players.filter(p => p.peerId !== conn.peer);
@@ -1000,9 +697,47 @@
                 });
             };
 
+            const joinGame = async () => {
+                if (!playerName || !selectedColor || !hostIdInput) return;
+                setIsConnecting(true);
+                setErrorMsg('');
+                const peer = await initializePeer();
+                setIsHost(false); isHostRef.current = false; hostIdRef.current = hostIdInput;
+                
+                const conn = peer.connect(hostIdInput);
+                conn.on('open', () => {
+                    connectionsRef.current.set(hostIdInput, conn);
+                    conn.send({ type: 'JOIN_REQUEST', payload: { name: playerName, color: selectedColor } });
+                });
+                conn.on('data', (data) => {
+                    if (data.type === 'GAME_STATE') {
+                        gameStateRef.current = data.payload;
+                        setRenderedGameState({...data.payload});
+                        if (mode === 'MENU') setMode('LOBBY');
+                        if ((data.payload.gameStatus === 'PLAYING' || data.payload.gameStatus === 'ABILITY_SELECTION') && mode !== 'GAME') setMode('GAME');
+                    } else if (data.type === 'START_GAME') {
+                        setMode('GAME');
+                    } else if (data.type === 'ERROR') {
+                        setErrorMsg(data.payload);
+                        setIsConnecting(false);
+                        conn.close();
+                    }
+                });
+                conn.on('error', (err) => {
+                    setErrorMsg("Connection failed.");
+                    setIsConnecting(false);
+                });
+                // Timeout fallback
+                setTimeout(() => {
+                    if (isConnecting && mode === 'MENU') {
+                        setIsConnecting(false);
+                        setErrorMsg("Connection timed out or invalid Host ID.");
+                    }
+                }, 5000);
+            };
+
             const startGame = () => {
                 if (!isHost) return;
-                // Instead of PLAYING, go to ABILITY_SELECTION
                 const currentPlayers = gameStateRef.current.players;
                 const newPlayers = [];
                 currentPlayers.forEach(p => {
@@ -1010,83 +745,52 @@
                     newPlayers.push({ 
                         ...p, x: pos.x, y: pos.y, 
                         isCaptured: false, isEliminated: false, capturedBy: null,
-                        selectedAbility: null, abilityCooldown: 0, secondLifeUsed: false,
-                        dirX: 0, dirY: 1
+                        selectedAbility: null, abilityCooldown: 0, secondLifeUsed: false, dirX: 0, dirY: 1
                     });
                 });
                 gameStateRef.current.players = newPlayers;
-                gameStateRef.current.police = [];
-                gameStateRef.current.walls = [];
-                gameStateRef.current.webs = [];
+                gameStateRef.current.police = []; gameStateRef.current.walls = []; gameStateRef.current.webs = [];
                 gameStateRef.current.gameStatus = 'ABILITY_SELECTION';
-                
-                broadcast({ type: 'START_GAME', payload: {} });
+                connectionsRef.current.forEach(c => c.open && c.send({ type: 'START_GAME', payload: {} }));
                 setMode('GAME');
             };
 
             const restartGame = () => {
                 if (!isHostRef.current) return;
-                startGame(); 
-                broadcast({ type: 'GAME_STATE', payload: gameStateRef.current });
-                setRenderedGameState({...gameStateRef.current});
+                startGame();
             };
 
-            const joinGame = async () => {
-                if (!playerName || !selectedColor || !hostIdInput) return;
-                setIsConnecting(true);
-                try {
-                    const peer = await initializePeer();
-                    setIsHost(false);
-                    isHostRef.current = false;
-                    hostIdRef.current = hostIdInput;
-                    const conn = peer.connect(hostIdInput, { reliable: true });
-                    const connectionTimeout = setTimeout(() => { if (!conn.open) setIsConnecting(false); }, 15000);
-
-                    conn.on('open', () => {
-                        clearTimeout(connectionTimeout);
-                        connectionsRef.current.set(hostIdInput, conn);
-                        conn.send({ type: 'JOIN_REQUEST', payload: { name: playerName, color: selectedColor } });
-                    });
-                    conn.on('data', (data) => {
-                        if (data.type === 'GAME_STATE') {
-                            gameStateRef.current = data.payload;
-                            setRenderedGameState({...data.payload});
-                            if (mode === 'MENU') { setMode('LOBBY'); setIsConnecting(false); }
-                            if ((data.payload.gameStatus === 'PLAYING' || data.payload.gameStatus === 'ABILITY_SELECTION') && mode !== 'GAME') setMode('GAME');
-                        } else if (data.type === 'START_GAME') setMode('GAME');
-                    });
-                    conn.on('close', () => window.location.reload());
-                } catch (e) { setJoinError("Failed to join"); setIsConnecting(false); }
-            };
-
-            const handleNetworkMessage = (senderId, msg) => {
+            const handleNetworkMessage = (senderId, msg, conn) => {
                 if (isHostRef.current) {
                     if (msg.type === 'JOIN_REQUEST') {
                         const { name, color } = msg.payload;
-                        if (gameStateRef.current.players.length >= 4) return;
+                        
+                        if (gameStateRef.current.players.length >= 4) {
+                            conn.send({ type: 'ERROR', payload: 'Lobby is full!' });
+                            return;
+                        }
+                        if (gameStateRef.current.players.some(p => p.color === color)) {
+                            conn.send({ type: 'ERROR', payload: 'Color already taken!' });
+                            return;
+                        }
+
                         const pos = getSafeSpawn(gameStateRef.current.players);
-                        const newPlayer = {
-                            id: senderId, peerId: senderId, name, color, x: pos.x, y: pos.y,
-                            isHost: false, isCaptured: false, isEliminated: false, capturedBy: null,
-                            lastAttack: 0, selectedAbility: null, abilityCooldown: 0, dirX: 0, dirY: 1
-                        };
-                        gameStateRef.current.players.push(newPlayer);
-                        broadcast({ type: 'GAME_STATE', payload: gameStateRef.current });
+                        gameStateRef.current.players.push({
+                            id: senderId, peerId: senderId, name, color, x: pos.x, y: pos.y, isHost: false,
+                            dirX: 0, dirY: 1, isCaptured: false, capturedBy: null, isEliminated: false, lastAttack: 0,
+                            selectedAbility: null, abilityCooldown: 0
+                        });
+                        // Send updated state to everyone
+                        const stateMsg = { type: 'GAME_STATE', payload: gameStateRef.current };
+                        conn.send(stateMsg); // Send to new player
+                        connectionsRef.current.forEach(c => c.open && c.send(stateMsg)); // Update others
                     }
-                    else if (msg.type === 'INPUT') {
-                        inputsRef.current[senderId] = msg.payload;
-                    }
+                    else if (msg.type === 'INPUT') inputsRef.current[senderId] = msg.payload;
                     else if (msg.type === 'SELECT_ABILITY') {
                         const pIdx = gameStateRef.current.players.findIndex(p => p.peerId === senderId);
-                        if (pIdx !== -1) {
-                            gameStateRef.current.players[pIdx].selectedAbility = msg.payload.abilityId;
-                        }
+                        if (pIdx !== -1) gameStateRef.current.players[pIdx].selectedAbility = msg.payload.abilityId;
                     }
                 }
-            };
-
-            const broadcast = (msg) => {
-                connectionsRef.current.forEach(conn => { if (conn.open) conn.send(msg); });
             };
 
             const handleAbilitySelect = (abilityId) => {
@@ -1103,34 +807,34 @@
             const gameLoop = useCallback(() => {
                 if (isHostRef.current) {
                     if (peerRef.current?.id) inputsRef.current[peerRef.current.id] = myInputRef.current;
-                    if (gameStateRef.current.gameStatus !== 'GAME_OVER') {
+                    
+                    if (gameStateRef.current.gameStatus === 'ABILITY_SELECTION') {
+                        const allSelected = gameStateRef.current.players.every(p => p.selectedAbility);
+                        if (allSelected && gameStateRef.current.players.length > 0) {
+                            gameStateRef.current.gameStatus = 'COUNTDOWN';
+                            gameStateRef.current.startTime = Date.now();
+                        }
+                    } else if (gameStateRef.current.gameStatus !== 'GAME_OVER') {
                         gameStateRef.current = updatePhysics(gameStateRef.current, inputsRef.current);
                     }
-                    broadcast({ type: 'GAME_STATE', payload: gameStateRef.current });
+
+                    connectionsRef.current.forEach(c => c.open && c.send({ type: 'GAME_STATE', payload: gameStateRef.current }));
                     setRenderedGameState({...gameStateRef.current});
                 } else {
                     const hostConn = connectionsRef.current.get(hostIdRef.current);
                     if (hostConn && hostConn.open) hostConn.send({ type: 'INPUT', payload: myInputRef.current });
                 }
-
+                
+                // Reset triggers
                 if (myInputRef.current.action) myInputRef.current.action = false;
                 if (myInputRef.current.ability) myInputRef.current.ability = false;
-                
                 Object.keys(inputsRef.current).forEach(k => {
-                    if (inputsRef.current[k].action) inputsRef.current[k].action = false;
-                    if (inputsRef.current[k].ability) inputsRef.current[k].ability = false;
+                     if(inputsRef.current[k].action) inputsRef.current[k].action = false;
+                     if(inputsRef.current[k].ability) inputsRef.current[k].ability = false;
                 });
 
                 requestRef.current = requestAnimationFrame(gameLoop);
             }, []);
-
-            useEffect(() => {
-                if (mode === 'LOBBY' || mode === 'GAME') {
-                    if (!requestRef.current) requestRef.current = requestAnimationFrame(gameLoop);
-                } else {
-                    if (requestRef.current) cancelAnimationFrame(requestRef.current);
-                }
-            }, [mode, gameLoop]);
 
             useEffect(() => {
                 const handleKey = (e, isDown) => {
@@ -1147,88 +851,108 @@
                 };
                 window.addEventListener('keydown', (e) => handleKey(e, true));
                 window.addEventListener('keyup', (e) => handleKey(e, false));
-                return () => {
-                    window.removeEventListener('keydown', handleKey);
-                    window.removeEventListener('keyup', handleKey);
-                };
+                return () => { window.removeEventListener('keydown', (e) => handleKey(e, true)); window.removeEventListener('keyup', (e) => handleKey(e, false)); };
             }, []);
 
-            // --- RENDER HUD FOR ABILITIES ---
-            const AbilityHUD = ({ player }) => {
-                if (!player || !player.selectedAbility) return null;
-                const ability = ABILITIES[player.selectedAbility];
-                const onCooldown = player.abilityCooldown > Date.now();
-                const timeLeft = onCooldown ? Math.ceil((player.abilityCooldown - Date.now()) / 1000) : 0;
-
-                return (
-                    <div className="absolute bottom-4 left-4 flex items-center gap-3 bg-slate-800/90 p-3 rounded-xl border border-slate-600">
-                        <div className={`relative p-3 rounded-lg ${onCooldown ? 'bg-slate-700' : 'bg-blue-600'} transition-colors`}>
-                            {ability.icon}
-                            <div className="absolute -top-2 -right-2 bg-white text-black font-bold text-xs w-5 h-5 flex items-center justify-center rounded-full">E</div>
-                            {onCooldown && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg font-bold text-white">
-                                    {timeLeft}
-                                </div>
-                            )}
-                        </div>
-                        <div className="text-white">
-                            <div className="font-bold text-sm">{ability.name}</div>
-                            <div className="text-xs text-slate-400">{ability.passive ? 'Passive' : onCooldown ? 'Recharging...' : 'Ready'}</div>
-                        </div>
-                    </div>
-                );
-            };
+            useEffect(() => {
+                if (mode === 'LOBBY' || mode === 'GAME') {
+                    if (!requestRef.current) requestRef.current = requestAnimationFrame(gameLoop);
+                } else {
+                    if (requestRef.current) cancelAnimationFrame(requestRef.current);
+                }
+            }, [mode, gameLoop]);
 
             const myPlayer = renderedGameState.players.find(p => p.peerId === myPeerId);
 
-            // --- RENDER LOGIC ---
+            const copyInviteLink = () => {
+                const url = `${window.location.protocol}//${window.location.host}${window.location.pathname}?game=${myPeerId}`;
+                navigator.clipboard.writeText(url);
+            };
+
             if (mode === 'MENU') {
-                // ... Keep Menu same as before ...
                 return (
                     <div className="min-h-screen bg-stone-900 flex items-center justify-center p-4 font-mono">
                         <div className="max-w-md w-full bg-slate-800 rounded-xl border border-slate-700 shadow-2xl p-8 space-y-6">
-                        <div className="text-center space-y-2">
-                            <div className="flex justify-center mb-2"><ShieldAlert size={48} className="text-red-500"/></div>
-                            <h1 className="text-4xl font-bold text-white tracking-tighter">POLICE ESCAPE</h1>
-                        </div>
-                        <div className="space-y-4">
-                            <input type="text" className="w-full p-2 bg-slate-900 border border-slate-700 text-white rounded-md" placeholder="Codename" value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
-                            <div className="flex justify-between gap-2">{AVAILABLE_COLORS.map(c => (<button key={c.value} onClick={() => setSelectedColor(c.value)} className={`w-12 h-12 rounded-full ${c.bg} ${selectedColor === c.value ? 'ring-4 ring-white' : ''}`} />))}</div>
-                            <div className="pt-4 border-t border-slate-700 space-y-3">
-                                {isConnecting ? <Loader2 className="animate-spin mx-auto text-blue-400"/> : (
+                            <h1 className="text-4xl font-bold text-white text-center">POLICE ESCAPE</h1>
+                            {errorMsg && <div className="bg-red-500/20 text-red-200 p-3 rounded text-center border border-red-500">{errorMsg}</div>}
+                            <div className="space-y-4">
+                                <input type="text" className="w-full p-2 bg-slate-900 border border-slate-700 text-white rounded" placeholder="Codename" value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
+                                <div className="grid grid-cols-4 gap-2">
+                                    {COLORS.map(c => (
+                                        <button key={c.value} onClick={() => setSelectedColor(c.value)} 
+                                            className={`h-12 rounded-lg ${c.bg} ${selectedColor === c.value ? 'ring-4 ring-white' : 'opacity-70 hover:opacity-100'}`} />
+                                    ))}
+                                </div>
+                                {isConnecting ? (
+                                    <div className="flex items-center justify-center gap-2 text-blue-400 py-3"><Loader2 className="animate-spin"/> Connecting...</div>
+                                ) : (
                                     <>
-                                    <button onClick={createGame} disabled={!playerName || !selectedColor} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">CREATE LOBBY</button>
-                                    <div className="flex gap-2"><input type="text" className="flex-1 p-2 bg-slate-900 text-white rounded-md" placeholder="Host ID" value={hostIdInput} onChange={(e) => setHostIdInput(e.target.value)} /><button onClick={joinGame} className="px-6 bg-slate-700 text-white rounded-lg font-bold">JOIN</button></div>
+                                    <button onClick={createGame} disabled={!playerName || !selectedColor} className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded font-bold transition-colors">CREATE LOBBY</button>
+                                    <div className="flex gap-2">
+                                        <input type="text" className="flex-1 p-2 bg-slate-900 text-white rounded border border-slate-700" placeholder="Host ID" value={hostIdInput} onChange={(e) => setHostIdInput(e.target.value)} />
+                                        <button onClick={joinGame} disabled={!playerName || !selectedColor || !hostIdInput} className="px-6 bg-slate-700 hover:bg-slate-600 text-white rounded font-bold transition-colors">JOIN</button>
+                                    </div>
                                     </>
                                 )}
-                                {joinError && <div className="text-red-400 text-center text-sm">{joinError}</div>}
                             </div>
-                        </div>
                         </div>
                     </div>
                 );
             }
 
             if (mode === 'LOBBY') {
+                const filledSlots = renderedGameState.players;
+                const emptySlots = Array(4 - filledSlots.length).fill(null);
+
                 return (
-                    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-mono">
-                        <div className="max-w-2xl w-full bg-slate-800 rounded-xl border border-slate-700 shadow-xl p-8 text-white">
-                        <h2 className="text-3xl font-bold mb-6 text-center">LOBBY</h2>
-                        {isHost && (
-                            <div className="mb-6 flex items-center justify-center gap-2 bg-black p-2 rounded">
-                                <code className="text-green-400">{myPeerId}</code>
-                                <button onClick={() => navigator.clipboard.writeText(myPeerId)}><Copy size={18}/></button>
-                            </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-4 mb-8">
-                            {renderedGameState.players.map(p => (
-                                <div key={p.id} className="flex items-center gap-3 p-3 bg-slate-700 rounded-lg">
-                                <div className="w-8 h-8 rounded-full" style={{ backgroundColor: p.color }}></div>
-                                <span>{p.name}</span>
+                    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-mono text-white">
+                        <div className="max-w-2xl w-full bg-slate-800 rounded-xl border border-slate-700 p-8">
+                            <h2 className="text-3xl font-bold mb-6 text-center">TEAM LOBBY</h2>
+                            
+                            {isHost && (
+                                <div className="mb-8 bg-slate-900 p-4 rounded-lg border border-slate-700">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="text-slate-400 text-sm">LOBBY ID</span>
+                                        <span className="text-slate-400 text-sm">INVITE LINK</span>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <div className="flex-1 bg-black p-2 rounded flex justify-between items-center">
+                                            <code className="text-green-400 truncate">{myPeerId}</code>
+                                            <button onClick={() => navigator.clipboard.writeText(myPeerId)} className="hover:text-white text-slate-400"><Copy size={16}/></button>
+                                        </div>
+                                        <button onClick={copyInviteLink} className="px-4 bg-blue-600 hover:bg-blue-500 rounded text-sm font-bold flex items-center gap-2">
+                                            <LinkIcon size={16}/> COPY LINK
+                                        </button>
+                                    </div>
                                 </div>
-                            ))}
-                        </div>
-                        {isHost ? <button onClick={startGame} className="w-full py-4 bg-green-600 rounded-xl font-bold text-xl">START MISSION</button> : <div className="text-center text-slate-500">Waiting for host...</div>}
+                            )}
+
+                            <div className="grid grid-cols-2 gap-4 mb-8">
+                                {filledSlots.map(p => (
+                                    <div key={p.id} className="flex items-center gap-3 p-4 bg-slate-700 rounded-lg border border-slate-600">
+                                        <div className="w-10 h-10 rounded-full shadow-lg border-2 border-white/20" style={{ backgroundColor: p.color }}></div>
+                                        <span className="font-bold text-lg">{p.name} {p.isHost && <span className="text-xs bg-yellow-500 text-black px-1 rounded ml-2">HOST</span>}</span>
+                                    </div>
+                                ))}
+                                {emptySlots.map((_, i) => (
+                                    <div key={`empty-${i}`} className="flex items-center gap-3 p-4 bg-slate-800/50 rounded-lg border border-slate-700 border-dashed">
+                                        <div className="w-10 h-10 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
+                                            <Users size={20} className="text-slate-600"/>
+                                        </div>
+                                        <span className="text-slate-500 italic">Waiting for player...</span>
+                                    </div>
+                                ))}
+                            </div>
+                            
+                            {isHost ? (
+                                <button onClick={startGame} className="w-full py-4 bg-green-600 hover:bg-green-500 text-white rounded font-bold text-xl transition-colors shadow-lg shadow-green-900/20">
+                                    START MISSION
+                                </button>
+                            ) : (
+                                <div className="text-center p-4 bg-slate-900 rounded border border-slate-700 animate-pulse">
+                                    Waiting for host to start mission...
+                                </div>
+                            )}
                         </div>
                     </div>
                 );
@@ -1237,12 +961,39 @@
             return (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-stone-950 p-2 select-none relative overflow-hidden">
                     <GameCanvas gameState={renderedGameState} myPeerId={myPeerId} />
-                    
+
                     {renderedGameState.gameStatus === 'ABILITY_SELECTION' && (
-                        <AbilitySelector onSelect={handleAbilitySelect} selected={selectedAbility} />
+                         <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-8 text-white">
+                            <h2 className="text-4xl font-bold mb-8 text-yellow-400">CHOOSE POWER</h2>
+                            <div className="flex gap-6 justify-center flex-wrap">
+                                {abilityOptions.map(id => {
+                                    const ab = ABILITIES_DATA[id];
+                                    return (
+                                        <button key={id} onClick={() => handleAbilitySelect(id)} className={`flex flex-col items-center p-6 w-64 rounded-xl border-2 transition-all ${selectedAbility === id ? 'bg-blue-900/50 border-blue-400 scale-105' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}>
+                                            <div className="mb-4 p-4 rounded-full bg-slate-600"><AbilityIcon id={id} /></div>
+                                            <h3 className="font-bold text-xl mb-2">{ab.name}</h3>
+                                            <p className="text-sm text-slate-400 text-center">{ab.desc}</p>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                            <div className="mt-12 h-8">{selectedAbility && <div className="flex items-center gap-2 text-blue-300 animate-pulse"><Loader2 className="animate-spin" size={20}/> Waiting for team...</div>}</div>
+                         </div>
                     )}
-                    
-                    {myPlayer && <AbilityHUD player={myPlayer} />}
+
+                    {myPlayer && myPlayer.selectedAbility && (
+                         <div className="absolute bottom-4 left-4 flex items-center gap-3 bg-slate-800/90 p-3 rounded-xl border border-slate-600 text-white">
+                             <div className={`relative p-3 rounded-lg ${myPlayer.abilityCooldown > Date.now() ? 'bg-slate-700' : 'bg-blue-600'}`}>
+                                 <AbilityIcon id={myPlayer.selectedAbility} />
+                                 <div className="absolute -top-2 -right-2 bg-white text-black font-bold text-xs w-5 h-5 flex items-center justify-center rounded-full">E</div>
+                                 {myPlayer.abilityCooldown > Date.now() && <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg font-bold">{Math.ceil((myPlayer.abilityCooldown - Date.now())/1000)}</div>}
+                             </div>
+                             <div>
+                                 <div className="font-bold text-sm">{ABILITIES_DATA[myPlayer.selectedAbility].name}</div>
+                                 <div className="text-xs text-slate-400">{ABILITIES_DATA[myPlayer.selectedAbility].passive ? 'Passive' : 'Ready'}</div>
+                             </div>
+                         </div>
+                    )}
 
                     {renderedGameState.gameStatus === 'GAME_OVER' && isHost && (
                         <div className="absolute bottom-10 pointer-events-auto animate-bounce">
@@ -1253,7 +1004,7 @@
             );
         };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
+        const root = createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
