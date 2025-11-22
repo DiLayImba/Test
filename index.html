@@ -52,7 +52,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef, useCallback } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { User, Copy, Zap, Ghost, Snowflake, Shield, Bug, HeartPulse, Loader2, RotateCcw, Link as LinkIcon, Users, Hand } from 'lucide-react';
+        import { User, Copy, Zap, Ghost, Snowflake, Shield, Bug, HeartPulse, Loader2, RotateCcw, Link as LinkIcon, Users, Hand, Skull, Bone, Hammer, Crosshair, Flame } from 'lucide-react';
 
         // Access global PeerJS
         const Peer = window.Peer;
@@ -77,18 +77,89 @@
         const DASH_DISTANCE = PLAYER_RADIUS * 2 * 5;
 
         // Net Gunner Config
-        const GUNNER_SPAWN_CHANCE = 0.3; // 20% chance to spawn WITH a normal cop
+        const GUNNER_SPAWN_CHANCE = 0.3; // 30% chance
         const NET_COOLDOWN = 12000;
         const NET_PROJECTILE_SPEED = PLAYER_SPEED * 2.0;
         const NET_STUN_DURATION = 2000;
         const NET_PROJECTILE_RADIUS = 6;
-        const GUNNER_SHOOT_RANGE = 180; // 6 * Player Diameter (roughly 30*4)
+        const GUNNER_SHOOT_RANGE = 180; 
+        
+        // Necromancer Config
+        const BONE_COST = 10;
+        const SKELETON_LIVES = 2;
+
+        // Barbarian Config
+        const BARBARIAN_SCALE_MULT = 1.2; // 20% larger
+        const BARBARIAN_PASSIVE_CD = 30000;
+        const BARBARIAN_STOMP_CD = 20000;
+        const BARBARIAN_ATTACK_RANGE_MULT = 1.2;
+        const BARBARIAN_STOMP_RADIUS_MULT = 4.0;
+
+        // Archer Config
+        const ARCHER_SPEED_MULT = 1.2; // +20% Speed
+        const ARCHER_SHOT_CD = 20000;
+        const ARROW_SPEED = PLAYER_SPEED * 2.0;
+        const ARROW_RADIUS = 5;
+
+        // Fire Mage Config
+        const FIRE_MAGE_CD_REDUCTION = 0.8; // 20% faster recharge (multiplier)
+        const FIRE_SHIELD_DURATION = 5000;
+        const FIRE_SHIELD_CD = 40000;
+
+        // Frost Mage Config
+        const FROST_MAGE_PASSIVE_RADIUS_MULT = 10.0;
+        const FROST_MAGE_PASSIVE_SLOW = 0.8; // 80% speed (20% slow)
+        const FROST_MAGE_ACTIVE_SLOW = 0.5; // 50% speed
+        const FROST_MAGE_ACTIVE_DURATION = 10000;
+        const FROST_MAGE_CD = 40000;
 
         const PlayerColor = {
             GREEN: '#22c55e',
             PINK: '#ec4899',
             PURPLE: '#a855f7',
             BLACK: '#171717',
+            BLUE: '#3b82f6',
+            RED: '#ef4444',
+            ORANGE: '#f97316',
+            CYAN: '#06b6d4',
+        };
+
+        const CLASSES_DATA = {
+            NECROMANCER: { 
+                name: 'Necromancer', 
+                desc: 'Harvest bones from stunned enemies. Press F with 10 bones to summon a Skeleton helper.', 
+                icon: Skull,
+                passive: 'Stunned police drop bones.',
+                color: '#a3e635' // lime-400
+            },
+            BARBARIAN: {
+                name: 'Barbarian',
+                desc: 'Giant warrior. Press F to Stomp (Stun area). Auto-breaks grabs every 30s.',
+                icon: Hammer,
+                passive: '+20% Size/Range. Auto-escape grab (30s CD).',
+                color: '#f87171' // red-400
+            },
+            ARCHER: {
+                name: 'Archer',
+                desc: 'Swift ranger. Press F to shoot a piercing arrow at captured allies.',
+                icon: Crosshair,
+                passive: '+20% Move Speed.',
+                color: '#fb923c' // orange-400
+            },
+            FIRE_MAGE: {
+                name: 'Fire Mage',
+                desc: 'Master of elements. Press F for Fire Shield (Stun on touch).',
+                icon: Flame,
+                passive: 'Non-class abilities recharge 20% faster.',
+                color: '#dc2626' // red-600
+            },
+            FROST_MAGE: {
+                name: 'Frost Mage',
+                desc: 'Control the battlefield. Press F to Slow ALL enemies by 50% for 10s.',
+                icon: Snowflake,
+                passive: 'Enemies within 10x range are slowed by 20%.',
+                color: '#0ea5e9' // sky-500
+            }
         };
 
         const ABILITIES_DATA = {
@@ -105,10 +176,13 @@
         const INITIAL_GAME_STATE = {
             players: [],
             police: [],
-            projectiles: [],
+            projectiles: [], // Enemy nets
+            playerProjectiles: [], // Archer arrows
             walls: [],
             webs: [],
-            gameStatus: 'LOBBY', // LOBBY, ABILITY_SELECTION, COUNTDOWN, PLAYING, GAME_OVER
+            bones: [],
+            skeletons: [],
+            gameStatus: 'LOBBY', // LOBBY, CLASS_SELECTION, ABILITY_SELECTION, COUNTDOWN, PLAYING, GAME_OVER
             startTime: 0,
             survivalTime: 0,
             lastSpawnTime: 0,
@@ -180,12 +254,26 @@
             return pos;
         };
 
+        // Helper to drop a bone when a cop is stunned
+        const dropBone = (gameState, x, y) => {
+            // Only drop if there is an active Necromancer in the game
+            const hasNecromancer = gameState.players.some(p => p.class === 'NECROMANCER' && !p.isEliminated);
+            if (!hasNecromancer) return;
+
+            gameState.bones.push({
+                id: `bone-${Date.now()}-${Math.random()}`,
+                x: x,
+                y: y,
+                spawnTime: Date.now()
+            });
+        };
+
         // --- PHYSICS ENGINE ---
         const updatePhysics = (gameState, inputs) => {
             const newState = { ...gameState };
             const now = Date.now();
 
-            if (newState.gameStatus === 'ABILITY_SELECTION') return newState;
+            if (newState.gameStatus === 'CLASS_SELECTION' || newState.gameStatus === 'ABILITY_SELECTION') return newState;
 
             if (newState.gameStatus === 'COUNTDOWN') {
                 const diff = now - newState.startTime;
@@ -206,33 +294,63 @@
             newState.players = newState.players.map(player => {
                 if (player.isEliminated) return player;
 
+                // Determine Current Radius (Barbarian Passive)
+                const currentRadius = player.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
+
                 // Immobilized Check
                 if (player.immobilizedUntil && now < player.immobilizedUntil) {
-                     // Can't move or use abilities
                      return player;
                 }
 
                 const input = inputs[player.peerId];
                 if (!input) return player;
 
-                // Captured / Shocker
+                // Captured Logic
                 if (player.isCaptured) {
+                    // Shocker Ability
                     if (player.selectedAbility === 'SHOCKER' && input.ability && (!player.abilityCooldown || now > player.abilityCooldown)) {
-                        player.abilityCooldown = now + ABILITIES_DATA.SHOCKER.cd;
+                        // Apply Fire Mage passive reduction if applicable (though likely full CD for escape)
+                        const cd = player.class === 'FIRE_MAGE' ? ABILITIES_DATA.SHOCKER.cd * FIRE_MAGE_CD_REDUCTION : ABILITIES_DATA.SHOCKER.cd;
+                        player.abilityCooldown = now + cd;
+                        
                         player.isCaptured = false;
+                        player.invulnerableUntil = now + 2000;
                         const cop = newState.police.find(p => p.id === player.capturedBy);
                         if (cop) {
                             cop.state = 'STUNNED';
                             cop.stunUntil = now + STUN_DURATION;
                             cop.draggingPlayerId = null;
+                            dropBone(newState, cop.x, cop.y);
                         }
                         player.capturedBy = null;
                     }
+
+                    // Barbarian Passive: Auto-Break
+                    if (player.class === 'BARBARIAN' && player.isCaptured) {
+                        if (!player.barbarianPassiveReadyAt || now > player.barbarianPassiveReadyAt) {
+                            // Trigger Escape
+                            player.barbarianPassiveReadyAt = now + BARBARIAN_PASSIVE_CD;
+                            player.isCaptured = false;
+                            player.invulnerableUntil = now + 2000; // Shield
+                            
+                            const cop = newState.police.find(p => p.id === player.capturedBy);
+                            if (cop) {
+                                cop.state = 'STUNNED';
+                                cop.stunUntil = now + STUN_DURATION;
+                                cop.draggingPlayerId = null;
+                                dropBone(newState, cop.x, cop.y);
+                            }
+                            player.capturedBy = null;
+                        }
+                    }
+
                     return player;
                 }
 
                 // Movement
                 let currentSpeed = PLAYER_SPEED;
+                if (player.class === 'ARCHER') currentSpeed *= ARCHER_SPEED_MULT; // Archer Passive
+                
                 const inWeb = newState.webs.some(w => distance(player.x, player.y, w.x, w.y) < WEB_RADIUS);
                 if (inWeb) currentSpeed *= 0.2;
                 if (player.speedBoostUntil && now < player.speedBoostUntil) currentSpeed *= 1.8;
@@ -249,7 +367,7 @@
                     dy *= 0.7071;
                 }
 
-                // Update Facing Direction for Abilities
+                // Update Facing Direction
                 let dirX = player.dirX;
                 let dirY = player.dirY;
                 if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
@@ -258,7 +376,104 @@
                     dirY = dy / mag;
                 }
 
-                // Abilities
+                // CLASS ABILITIES (F Key)
+                if (input.classAbility) {
+                    // NECROMANCER: Summon
+                    if (player.class === 'NECROMANCER') {
+                        if (player.boneCount >= BONE_COST) {
+                             if (!player.lastSummon || now - player.lastSummon > 1000) {
+                                 player.boneCount -= BONE_COST;
+                                 player.lastSummon = now;
+                                 newState.skeletons.push({
+                                     id: `skel-${now}-${player.peerId}`,
+                                     ownerId: player.peerId,
+                                     x: player.x + dirX * 20,
+                                     y: player.y + dirY * 20,
+                                     lives: SKELETON_LIVES,
+                                     state: 'IDLE'
+                                 });
+                             }
+                        }
+                    }
+                    // BARBARIAN: Stomp
+                    else if (player.class === 'BARBARIAN') {
+                        if (!player.classAbilityCooldown || now > player.classAbilityCooldown) {
+                            player.classAbilityCooldown = now + BARBARIAN_STOMP_CD;
+                            player.lastStompTime = now; // For visuals
+                            
+                            const stompRadius = currentRadius * BARBARIAN_STOMP_RADIUS_MULT; 
+                            // Stun cops in range
+                            newState.police.forEach(cop => {
+                                if (distance(player.x, player.y, cop.x, cop.y) < stompRadius + POLICE_RADIUS) {
+                                    cop.state = 'STUNNED';
+                                    cop.stunUntil = now + STUN_DURATION;
+                                    dropBone(newState, cop.x, cop.y);
+                                    if (cop.draggingPlayerId) {
+                                         const v = newState.players.find(p => p.peerId === cop.draggingPlayerId);
+                                         if(v) { v.isCaptured = false; v.capturedBy = null; v.invulnerableUntil = now + 2000; }
+                                         cop.draggingPlayerId = null;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    // ARCHER: Shoot
+                    else if (player.class === 'ARCHER') {
+                         if (!player.classAbilityCooldown || now > player.classAbilityCooldown) {
+                             player.classAbilityCooldown = now + ARCHER_SHOT_CD;
+                             
+                             // Find target (nearest captured player)
+                             let target = null;
+                             let minD = Infinity;
+                             newState.players.forEach(p => {
+                                 if (p.isCaptured && !p.isEliminated) {
+                                     const d = distance(player.x, player.y, p.x, p.y);
+                                     if (d < minD) { minD = d; target = p; }
+                                 }
+                             });
+
+                             let vx, vy;
+                             if (target) {
+                                 const ang = Math.atan2(target.y - player.y, target.x - player.x);
+                                 vx = Math.cos(ang) * ARROW_SPEED;
+                                 vy = Math.sin(ang) * ARROW_SPEED;
+                             } else {
+                                 // Shoot in facing direction
+                                 vx = dirX * ARROW_SPEED;
+                                 vy = dirY * ARROW_SPEED;
+                             }
+
+                             newState.playerProjectiles.push({
+                                 id: `arrow-${now}-${player.peerId}`,
+                                 x: player.x, 
+                                 y: player.y,
+                                 vx: vx, 
+                                 vy: vy,
+                                 hitIds: [] // Store IDs of cops already hit (piercing logic)
+                             });
+                         }
+                    }
+                    // FIRE MAGE: Fire Shield
+                    else if (player.class === 'FIRE_MAGE') {
+                         if (!player.classAbilityCooldown || now > player.classAbilityCooldown) {
+                             player.classAbilityCooldown = now + FIRE_SHIELD_CD;
+                             player.fireShieldUntil = now + FIRE_SHIELD_DURATION;
+                         }
+                    }
+                    // FROST MAGE: Global Slow
+                    else if (player.class === 'FROST_MAGE') {
+                        if (!player.classAbilityCooldown || now > player.classAbilityCooldown) {
+                            player.classAbilityCooldown = now + FROST_MAGE_CD;
+                            
+                            // Apply slow to ALL enemies currently in the array
+                            newState.police.forEach(cop => {
+                                cop.majorSlowUntil = now + FROST_MAGE_ACTIVE_DURATION;
+                            });
+                        }
+                    }
+                }
+
+                // ABILITIES (E Key)
                 if (input.ability && player.selectedAbility && (!player.abilityCooldown || now > player.abilityCooldown)) {
                     const ab = ABILITIES_DATA[player.selectedAbility];
                     let activated = false;
@@ -266,13 +481,12 @@
                     if (player.selectedAbility === 'DASH') {
                         let dashX = player.x + dirX * DASH_DISTANCE;
                         let dashY = player.y + dirY * DASH_DISTANCE;
-                        dashX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, dashX));
-                        dashY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, dashY));
+                        dashX = Math.max(currentRadius, Math.min(CANVAS_WIDTH - currentRadius, dashX));
+                        dashY = Math.max(currentRadius, Math.min(CANVAS_HEIGHT - currentRadius, dashY));
                         
-                        // Prevent dashing INSIDE walls, but allow dashing NEAR them
                         let hitWall = false;
                         for (const w of newState.walls) {
-                            if (rectCircleColliding({x: dashX, y: dashY, r: PLAYER_RADIUS}, w)) {
+                            if (rectCircleColliding({x: dashX, y: dashY, r: currentRadius}, w)) {
                                 hitWall = true;
                                 break;
                             }
@@ -288,11 +502,16 @@
                         activated = true;
                     }
                     else if (player.selectedAbility === 'FREEZE') {
-                        newState.police.forEach(p => { p.state = 'STUNNED'; p.stunUntil = now + 2500; });
+                        newState.police.forEach(p => { 
+                            if (p.state !== 'STUNNED') {
+                                p.state = 'STUNNED'; 
+                                p.stunUntil = now + 2500;
+                                dropBone(newState, p.x, p.y);
+                            }
+                        });
                         activated = true;
                     }
                     else if (player.selectedAbility === 'WALL') {
-                        // Place wall slightly behind player
                         newState.walls.push({
                             id: `wall-${now}-${player.peerId}`,
                             x: player.x - (dirX * 40) - (WALL_SIZE/2),
@@ -315,47 +534,61 @@
                         activated = true;
                     }
 
-                    if (activated) player.abilityCooldown = now + ab.cd;
+                    if (activated) {
+                         // Fire Mage Passive: 20% faster recharge
+                         const cd = player.class === 'FIRE_MAGE' ? ab.cd * FIRE_MAGE_CD_REDUCTION : ab.cd;
+                         player.abilityCooldown = now + cd;
+                    }
                 }
 
                 let newX = player.x + dx;
                 let newY = player.y + dy;
 
-                // Wall Collision (With Ejection)
+                // Wall Collision
                 for (const w of newState.walls) {
-                    // Check if we were ALREADY inside (e.g. wall spawned on us)
-                    const wasInside = rectCircleColliding({x: player.x, y: player.y, r: PLAYER_RADIUS}, w);
+                    const wasInside = rectCircleColliding({x: player.x, y: player.y, r: currentRadius}, w);
                     
                     if (wasInside) {
-                         // Push out logic
-                         const push = getPenetrationVector({x: newX, y: newY}, w, PLAYER_RADIUS);
+                         const push = getPenetrationVector({x: newX, y: newY}, w, currentRadius);
                          newX += push.x;
                          newY += push.y;
                     } else {
-                        // Standard collision stopping
-                        if (rectCircleColliding({x: newX, y: player.y, r: PLAYER_RADIUS}, w)) newX = player.x;
-                        if (rectCircleColliding({x: player.x, y: newY, r: PLAYER_RADIUS}, w)) newY = player.y;
+                        if (rectCircleColliding({x: newX, y: player.y, r: currentRadius}, w)) newX = player.x;
+                        if (rectCircleColliding({x: player.x, y: newY, r: currentRadius}, w)) newY = player.y;
                     }
                 }
 
-                newX = Math.max(PLAYER_RADIUS, Math.min(CANVAS_WIDTH - PLAYER_RADIUS, newX));
-                newY = Math.max(PLAYER_RADIUS, Math.min(CANVAS_HEIGHT - PLAYER_RADIUS, newY));
+                newX = Math.max(currentRadius, Math.min(CANVAS_WIDTH - currentRadius, newX));
+                newY = Math.max(currentRadius, Math.min(CANVAS_HEIGHT - currentRadius, newY));
+
+                // Collect Bones (Necromancer Only)
+                if (player.class === 'NECROMANCER') {
+                    newState.bones = newState.bones.filter(b => {
+                        if (distance(newX, newY, b.x, b.y) < PLAYER_RADIUS * 1.5) {
+                            player.boneCount = (player.boneCount || 0) + 1;
+                            return false; // Consumed
+                        }
+                        return true;
+                    });
+                }
 
                 // Combat / Rescue
                 if (input.action && now - player.lastAttack > ATTACK_COOLDOWN) {
                     player.lastAttack = now;
-                    // Stun police nearby (ONLY IF DRAGGING A PLAYER)
+                    // Calculate attack range based on class
+                    const baseRange = ATTACK_RADIUS;
+                    const effectiveRange = player.class === 'BARBARIAN' ? baseRange * BARBARIAN_ATTACK_RANGE_MULT : baseRange;
+
                     newState.police.forEach(cop => {
-                        if (distance(newX, newY, cop.x, cop.y) < ATTACK_RADIUS) {
+                        if (distance(newX, newY, cop.x, cop.y) < effectiveRange) {
                             if (cop.draggingPlayerId) {
                                 cop.state = 'STUNNED';
                                 cop.stunUntil = now + STUN_DURATION;
-                                // Drop victim if carrying
+                                dropBone(newState, cop.x, cop.y);
                                 const victim = newState.players.find(p => p.peerId === cop.draggingPlayerId);
                                 if (victim) {
                                     victim.isCaptured = false;
                                     victim.capturedBy = null;
-                                    // Grant Invulnerability for 2s
                                     victim.invulnerableUntil = now + 2000;
                                 }
                                 cop.draggingPlayerId = null;
@@ -367,17 +600,21 @@
                 return { ...player, x: newX, y: newY, dirX, dirY };
             });
 
-            // 2. Player-Player Collision (Soft Push)
+            // 2. Player-Player Collision
             for(let i=0; i < newState.players.length; i++) {
                 for(let j=i+1; j < newState.players.length; j++) {
                     const p1 = newState.players[i];
                     const p2 = newState.players[j];
                     if (p1.isEliminated || p2.isEliminated) continue;
                     
+                    // Calculate dynamic radii
+                    const r1 = p1.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
+                    const r2 = p2.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
+                    const minDist = r1 + r2;
+
                     const dx = p1.x - p2.x;
                     const dy = p1.y - p2.y;
                     const dist = Math.sqrt(dx*dx + dy*dy);
-                    const minDist = PLAYER_RADIUS * 2;
                     
                     if (dist < minDist && dist > 0) {
                         const overlap = (minDist - dist) / 2;
@@ -389,42 +626,107 @@
                 }
             }
 
-            // 3. Projectiles (Nets) Logic
+            // 3. Skeletons Logic
+            newState.skeletons = newState.skeletons.filter(skel => {
+                let target = null;
+                let minDist = Infinity;
+                newState.police.forEach(cop => {
+                    if (cop.draggingPlayerId) {
+                        const d = distance(skel.x, skel.y, cop.x, cop.y);
+                        if (d < minDist) { minDist = d; target = cop; }
+                    }
+                });
+
+                if (target) {
+                    const livesLost = SKELETON_LIVES - skel.lives; 
+                    let speedRatio = 1.0;
+                    if (livesLost === 1) speedRatio = 0.5;
+                    
+                    const speed = PLAYER_SPEED * speedRatio;
+                    const ang = Math.atan2(target.y - skel.y, target.x - skel.x);
+                    skel.x += Math.cos(ang) * speed;
+                    skel.y += Math.sin(ang) * speed;
+
+                    if (distance(skel.x, skel.y, target.x, target.y) < POLICE_RADIUS + 10) {
+                        target.state = 'STUNNED';
+                        target.stunUntil = now + STUN_DURATION;
+                        dropBone(newState, target.x, target.y);
+
+                        const victim = newState.players.find(p => p.peerId === target.draggingPlayerId);
+                        if (victim) {
+                            victim.isCaptured = false;
+                            victim.capturedBy = null;
+                            victim.invulnerableUntil = now + 2000;
+                        }
+                        target.draggingPlayerId = null;
+                        skel.lives--;
+                        skel.x -= Math.cos(ang) * 20;
+                        skel.y -= Math.sin(ang) * 20;
+                    }
+                }
+                return skel.lives > 0;
+            });
+
+
+            // 4. Projectiles (Nets - Enemy)
             newState.projectiles = newState.projectiles.filter(proj => {
-                // Move
                 proj.x += proj.vx;
                 proj.y += proj.vy;
+                if (proj.x < -50 || proj.x > CANVAS_WIDTH + 50 || proj.y < -50 || proj.y > CANVAS_HEIGHT + 50) return false;
 
-                // Check bounds
-                if (proj.x < -50 || proj.x > CANVAS_WIDTH + 50 || proj.y < -50 || proj.y > CANVAS_HEIGHT + 50) {
-                    return false;
-                }
-
-                // Check Collision with Players
                 let hit = false;
                 newState.players.forEach(p => {
                     if (!p.isEliminated && !p.isCaptured && !hit) {
-                         // Don't hit invulnerable or invisible or already immobilized
                          const isInvuln = p.invulnerableUntil && now < p.invulnerableUntil;
                          if (isInvuln) return;
+                         
+                         const pRadius = p.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
 
-                         if (distance(proj.x, proj.y, p.x, p.y) < (PLAYER_RADIUS + NET_PROJECTILE_RADIUS)) {
+                         if (distance(proj.x, proj.y, p.x, p.y) < (pRadius + NET_PROJECTILE_RADIUS)) {
                              p.immobilizedUntil = now + NET_STUN_DURATION;
                              hit = true;
                          }
                     }
                 });
-
-                return !hit; // Remove if hit
+                return !hit; 
+            });
+            
+            // 4.5 Player Projectiles (Arrows - Archer)
+            newState.playerProjectiles = newState.playerProjectiles.filter(arrow => {
+                arrow.x += arrow.vx;
+                arrow.y += arrow.vy;
+                
+                if (arrow.x < -50 || arrow.x > CANVAS_WIDTH + 50 || arrow.y < -50 || arrow.y > CANVAS_HEIGHT + 50) return false;
+                
+                // Pierce Logic
+                newState.police.forEach(cop => {
+                     if (distance(arrow.x, arrow.y, cop.x, cop.y) < POLICE_RADIUS + ARROW_RADIUS) {
+                         // If not already hit by this arrow
+                         if (!arrow.hitIds.includes(cop.id)) {
+                             arrow.hitIds.push(cop.id);
+                             
+                             cop.state = 'STUNNED';
+                             cop.stunUntil = now + STUN_DURATION;
+                             dropBone(newState, cop.x, cop.y);
+                             
+                             if (cop.draggingPlayerId) {
+                                 const v = newState.players.find(p => p.peerId === cop.draggingPlayerId);
+                                 if(v) { v.isCaptured = false; v.capturedBy = null; v.invulnerableUntil = now + 2000; }
+                                 cop.draggingPlayerId = null;
+                             }
+                         }
+                     }
+                });
+                
+                return true;
             });
 
 
-            // 4. Spawn Police
+            // 5. Spawn Police
             if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
                 newState.lastSpawnTime = now;
                 const edge = newState.nextSpawnSide;
                 
-                // Helper to get spawn coord
                 const getSpawnCoord = (e) => {
                      if (e === 0) return { x: Math.random() * CANVAS_WIDTH, y: -30 };
                      else if (e === 1) return { x: CANVAS_WIDTH + 30, y: Math.random() * CANVAS_HEIGHT };
@@ -441,24 +743,22 @@
                     stunUntil: 0, arrestStartTime: 0, draggingPlayerId: null
                 });
 
-                // 20% Chance to Spawn Gunner WITH Normal cop
                 if (Math.random() < GUNNER_SPAWN_CHANCE) {
-                     const gunnerPos = getSpawnCoord(edge); // Same side
+                     const gunnerPos = getSpawnCoord(edge);
                      newState.police.push({
                         id: `police-gunner-${now}`,
                         type: 'GUNNER',
                         x: gunnerPos.x, y: gunnerPos.y,
                         state: 'CHASING',
                         stunUntil: 0, arrestStartTime: 0, draggingPlayerId: null,
-                        lastShot: 0, // Start READY (0 means it can shoot immediately)
-                        cooldownOffset: Math.random() * 3000 // Add up to 3s random variance to cooldowns
+                        lastShot: 0,
+                        cooldownOffset: Math.random() * 3000 
                     });
                 }
-
                 newState.nextSpawnSide = Math.floor(Math.random() * 4);
             }
 
-            // 5. Update Police
+            // 6. Update Police
             const activePlayers = newState.players.filter(p => !p.isEliminated && !p.isCaptured);
             const visiblePlayers = activePlayers.filter(p => !p.invisibleUntil || now > p.invisibleUntil);
             
@@ -475,31 +775,38 @@
 
                 let speed = basePoliceSpeed;
                 if (newState.webs.some(w => distance(cop.x, cop.y, w.x, w.y) < WEB_RADIUS)) speed *= 0.2;
+                
+                // FROST MAGE ACTIVE SLOW (50%)
+                if (cop.majorSlowUntil && now < cop.majorSlowUntil) {
+                    speed *= FROST_MAGE_ACTIVE_SLOW;
+                }
 
-                // Gunner Shooting Logic
+                // FROST MAGE PASSIVE SLOW (20%)
+                // Check if near any Frost Mage
+                const frostMageNearby = activePlayers.some(p => 
+                    p.class === 'FROST_MAGE' && 
+                    distance(cop.x, cop.y, p.x, p.y) < (PLAYER_RADIUS * FROST_MAGE_PASSIVE_RADIUS_MULT)
+                );
+                if (frostMageNearby) {
+                    speed *= FROST_MAGE_PASSIVE_SLOW;
+                }
+
+                // Gunner
                 if (cop.type === 'GUNNER' && cop.state === 'CHASING') {
                     const effectiveCooldown = NET_COOLDOWN + (cop.cooldownOffset || 0);
-                    
                     if (now - cop.lastShot > effectiveCooldown) {
-                        // Find nearest target
                         let nearest = null;
                         let minD = Infinity;
                         visiblePlayers.forEach(p => {
-                            // Don't shoot invulnerable players
                             if (p.invulnerableUntil && now < p.invulnerableUntil) return;
-                            
                             const d = distance(cop.x, cop.y, p.x, p.y);
                             if (d < minD) { minD = d; nearest = p; }
                         });
-
-                        // Only shoot if in range
                         if (nearest && minD <= GUNNER_SHOOT_RANGE) {
-                            // Shoot
                             cop.lastShot = now;
                             const ang = Math.atan2(nearest.y - cop.y, nearest.x - cop.x);
                             newState.projectiles.push({
-                                x: cop.x,
-                                y: cop.y,
+                                x: cop.x, y: cop.y,
                                 vx: Math.cos(ang) * NET_PROJECTILE_SPEED,
                                 vy: Math.sin(ang) * NET_PROJECTILE_SPEED
                             });
@@ -509,9 +816,7 @@
 
                 let vx = 0, vy = 0;
 
-                // State Machine
                 if (cop.state === 'EXITING') {
-                    // Head to center edge or specific exit? Just run away from center
                     const centerX = CANVAS_WIDTH/2;
                     const centerY = CANVAS_HEIGHT/2;
                     const angle = Math.atan2(cop.y - centerY, cop.x - centerX);
@@ -520,77 +825,61 @@
                 }
                 else if (cop.state === 'ARRESTING') {
                     if (now - cop.arrestStartTime > ARREST_DURATION) cop.state = 'DRAGGING';
-                    // Keep victim pinned
                     if (cop.draggingPlayerId) {
                         const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
                         if (vIdx !== -1) { newState.players[vIdx].x = cop.x; newState.players[vIdx].y = cop.y; }
                     }
-                    return cop; // No movement during arrest animation
+                    return cop;
                 }
                 else if (cop.state === 'DRAGGING') {
-                    // Drag to nearest edge with OBSTACLE AVOIDANCE
+                    // Pathfinding logic
                     const distTop = cop.y;
                     const distBottom = CANVAS_HEIGHT - cop.y;
                     const distLeft = cop.x;
                     const distRight = CANVAS_WIDTH - cop.x;
                     const minDist = Math.min(distTop, distBottom, distLeft, distRight);
-                    speed *= 0.6; // Slower when dragging
+                    speed *= 0.6; 
 
-                    // 1. Determine Goal Velocity
                     let targetVx = 0;
                     let targetVy = 0;
-
                     if (minDist === distTop) targetVy = -speed;
                     else if (minDist === distBottom) targetVy = speed;
                     else if (minDist === distLeft) targetVx = -speed;
                     else targetVx = speed;
 
-                    // 2. Obstacle Avoidance Lookahead
                     const lookAheadDist = POLICE_RADIUS + 15; 
                     let blocked = false;
                     let wallCenter = { x: 0, y: 0 };
-
                     for (const w of newState.walls) {
                         const testCircle = {
                             x: cop.x + (targetVx !== 0 ? Math.sign(targetVx) * lookAheadDist : 0),
                             y: cop.y + (targetVy !== 0 ? Math.sign(targetVy) * lookAheadDist : 0),
                             r: POLICE_RADIUS
                         };
-                        
                         if (rectCircleColliding(testCircle, w)) {
                             blocked = true;
                             wallCenter = { x: w.x + w.w/2, y: w.y + w.h/2 };
                             break;
                         }
                     }
-
                     if (blocked) {
-                        // If blocked Vertical, go Horizontal
                         if (targetVy !== 0) {
                             targetVy = 0;
-                            // Move towards side closer to cop to clear wall
                             targetVx = (cop.x < wallCenter.x) ? -speed : speed;
-                        }
-                        // If blocked Horizontal, go Vertical
-                        else if (targetVx !== 0) {
+                        } else if (targetVx !== 0) {
                             targetVx = 0;
                             targetVy = (cop.y < wallCenter.y) ? -speed : speed;
                         }
                     }
-
-                    vx = targetVx;
-                    vy = targetVy;
+                    vx = targetVx; vy = targetVy;
 
                     if (cop.draggingPlayerId) {
                         const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
                         if (vIdx !== -1) {
                             const victim = newState.players[vIdx];
                             victim.x = cop.x; victim.y = cop.y;
-                            
-                            // Check if exited
                             if (cop.x < -20 || cop.x > CANVAS_WIDTH+20 || cop.y < -20 || cop.y > CANVAS_HEIGHT+20) {
                                 if (victim.selectedAbility === 'SECOND_LIFE' && !victim.secondLifeUsed) {
-                                    // Respawn
                                     victim.secondLifeUsed = true;
                                     victim.isCaptured = false;
                                     victim.capturedBy = null;
@@ -599,7 +888,6 @@
                                     cop.state = 'EXITING';
                                     cop.draggingPlayerId = null;
                                 } else {
-                                    // Eliminated
                                     victim.isEliminated = true;
                                     victim.isCaptured = false;
                                     cop.state = 'EXITING';
@@ -613,19 +901,32 @@
                     let nearest = null;
                     let minD = Infinity;
                     visiblePlayers.forEach(p => {
-                        // Check Invulnerability
                         if (p.invulnerableUntil && now < p.invulnerableUntil) return;
-
                         const d = distance(cop.x, cop.y, p.x, p.y);
                         if (d < minD) { minD = d; nearest = p; }
                     });
 
                     if (nearest) {
+                        // FIRE MAGE: FIRE SHIELD COLLISION CHECK
+                        if (nearest.fireShieldUntil && now < nearest.fireShieldUntil) {
+                             const pRadius = nearest.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
+                             // If touching the player's shield area
+                             if (distance(cop.x, cop.y, nearest.x, nearest.y) < POLICE_RADIUS + pRadius + 5) {
+                                 cop.state = 'STUNNED';
+                                 cop.stunUntil = now + STUN_DURATION;
+                                 dropBone(newState, cop.x, cop.y);
+                                 return cop; // Skip movement for this frame
+                             }
+                        }
+
                         const angle = Math.atan2(nearest.y - cop.y, nearest.x - cop.x);
                         vx = Math.cos(angle) * speed;
                         vy = Math.sin(angle) * speed;
                         
-                        if (distance(cop.x, cop.y, nearest.x, nearest.y) < (POLICE_RADIUS + PLAYER_RADIUS)) {
+                        // Capture logic
+                        const pRadius = nearest.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
+
+                        if (distance(cop.x, cop.y, nearest.x, nearest.y) < (POLICE_RADIUS + pRadius)) {
                             cop.state = 'ARRESTING';
                             cop.arrestStartTime = now;
                             cop.draggingPlayerId = nearest.peerId;
@@ -639,7 +940,6 @@
                             vx=0; vy=0;
                         }
                     } else {
-                        // Wander to center
                         const angle = Math.atan2(CANVAS_HEIGHT/2 - cop.y, CANVAS_WIDTH/2 - cop.x);
                         vx = Math.cos(angle) * (speed*0.5);
                         vy = Math.sin(angle) * (speed*0.5);
@@ -649,15 +949,11 @@
                 let nextX = cop.x + vx;
                 let nextY = cop.y + vy;
 
-                // Police Wall Collision (With Ejection)
                 for (const w of newState.walls) {
                     const wasInside = rectCircleColliding({x: cop.x, y: cop.y, r: POLICE_RADIUS}, w);
-                    
                     if (wasInside) {
-                         // Push out
                          const push = getPenetrationVector({x: nextX, y: nextY}, w, POLICE_RADIUS);
-                         nextX += push.x;
-                         nextY += push.y;
+                         nextX += push.x; nextY += push.y;
                     } else {
                         if (rectCircleColliding({x: nextX, y: cop.y, r: POLICE_RADIUS}, w)) nextX = cop.x;
                         if (rectCircleColliding({x: cop.x, y: nextY, r: POLICE_RADIUS}, w)) nextY = cop.y;
@@ -667,7 +963,7 @@
                 return { ...cop, x: nextX, y: nextY };
             });
 
-            // 6. Police Separation (Prevent stacking)
+            // 7. Police Separation
             for(let iter=0; iter<2; iter++) {
                 for (let i = 0; i < newState.police.length; i++) {
                     for (let j = i + 1; j < newState.police.length; j++) {
@@ -685,7 +981,6 @@
                 }
             }
 
-            // Cleanup
             newState.police = newState.police.filter(cop => {
                 if (cop.state === 'EXITING') return (cop.x > -100 && cop.x < CANVAS_WIDTH+100 && cop.y > -100 && cop.y < CANVAS_HEIGHT+100);
                 return true;
@@ -720,22 +1015,49 @@
             );
         };
 
+        const ClassCard = ({ id, data, selected, onSelect }) => {
+             const Icon = data.icon || Zap;
+             let colorClass = 'border-stone-700 hover:border-stone-500 bg-stone-800/50';
+             let iconClass = selected ? 'text-white' : 'text-stone-400';
+             
+             // Dynamic styling based on selection
+             if (selected) {
+                 colorClass = `border-white bg-white/10 scale-105 shadow-xl`;
+                 iconClass = `text-[${data.color}]`;
+             }
+
+             return (
+                <div 
+                    onClick={() => onSelect(id)}
+                    className={`p-6 border-2 rounded-xl cursor-pointer transition-all flex flex-col items-center text-center h-[260px] w-[200px] ${colorClass}`}
+                    style={selected ? { borderColor: data.color, boxShadow: `0 0 20px ${data.color}40` } : {}}
+                >
+                    <Icon className={`w-12 h-12 mb-4 ${iconClass}`} style={selected ? { color: data.color } : {}} />
+                    <span className="font-bold text-xl text-stone-100 mb-2">{data.name}</span>
+                    <p className="text-sm text-stone-400 leading-snug mb-4 flex-grow">{data.desc}</p>
+                    <div className="text-xs bg-stone-900/50 p-2 rounded text-stone-300 border border-stone-700 w-full">
+                        Passive: {data.passive}
+                    </div>
+                </div>
+            );
+        };
+
         const App = () => {
             // State
             const [myPeerId, setMyPeerId] = useState(null);
             const [hostId, setHostId] = useState('');
             const [role, setRole] = useState(null); // 'HOST' | 'CLIENT'
-            const [status, setStatus] = useState('LOBBY'); // LOBBY, ABILITY_SELECTION, PLAYING
+            const [status, setStatus] = useState('LOBBY'); // LOBBY, CLASS_SELECTION, ABILITY_SELECTION, PLAYING
             const [myName, setMyName] = useState('');
             const [myColor, setMyColor] = useState(PlayerColor.GREEN);
             const [playersList, setPlayersList] = useState([]); // For lobby UI
             const [offeredAbilities, setOfferedAbilities] = useState([]); // The 3 random abilities
-            const [showRestart, setShowRestart] = useState(false); // Track game over restart button visibility
+            const [showRestart, setShowRestart] = useState(false); 
             
             // Game State Refs
             const gameStateRef = useRef(JSON.parse(JSON.stringify(INITIAL_GAME_STATE)));
             const inputsRef = useRef({});
-            const myInputRef = useRef({ up: false, down: false, left: false, right: false, action: false, ability: false });
+            const myInputRef = useRef({ up: false, down: false, left: false, right: false, action: false, ability: false, classAbility: false });
             
             // Networking Refs
             const peerRef = useRef(null);
@@ -771,13 +1093,16 @@
                             else if (data.type === 'INPUT') {
                                 inputsRef.current[conn.peer] = data.input;
                             }
+                            else if (data.type === 'CLASS_SELECT') {
+                                const p = gameStateRef.current.players.find(p => p.peerId === conn.peer);
+                                if (p) p.class = data.class;
+                            }
                             else if (data.type === 'ABILITY_SELECT') {
                                 const p = gameStateRef.current.players.find(p => p.peerId === conn.peer);
                                 if (p) p.selectedAbility = data.ability;
                             }
                         });
 
-                        // Send current state immediately?
                         conn.send({ type: 'LOBBY_UPDATE', players: playersList }); // Optimistic
                     });
                 });
@@ -790,37 +1115,29 @@
             useEffect(() => {
                 if (role === 'HOST') {
                     const list = [{ id: myPeerId, name: myName, color: myColor }, ...playersList.filter(p => p.id !== myPeerId)];
-                     // Broadcast
                     connsRef.current.forEach(c => {
                         if(c.open) c.send({ type: 'LOBBY_UPDATE', players: list });
                     });
                 }
             }, [playersList, role, myName, myColor, myPeerId]);
 
-            // Monitor Game Status to Switch UI (CRITICAL FIX)
+            // Monitor Game Status
             useEffect(() => {
                 const interval = setInterval(() => {
                     const gs = gameStateRef.current.gameStatus;
-                    
-                    // Transition: Selection -> Playing
-                    if (status === 'ABILITY_SELECTION' && (gs === 'COUNTDOWN' || gs === 'PLAYING')) {
-                        setStatus('PLAYING');
-                    }
-                    
-                    // Transition: Playing -> Selection (Restart)
-                    if (status === 'PLAYING' && gs === 'ABILITY_SELECTION') {
-                        setStatus('ABILITY_SELECTION');
+                    if (status === 'LOBBY' && gs === 'CLASS_SELECTION') setStatus('CLASS_SELECTION');
+                    if (status === 'CLASS_SELECTION' && gs === 'ABILITY_SELECTION') setStatus('ABILITY_SELECTION');
+                    if (status === 'ABILITY_SELECTION' && (gs === 'COUNTDOWN' || gs === 'PLAYING')) setStatus('PLAYING');
+                    if (status === 'PLAYING' && gs === 'CLASS_SELECTION') {
+                        setStatus('CLASS_SELECTION');
                         setShowRestart(false);
                     }
-
-                    // Transition: Playing -> Lobby (Full quit?)
                     if (status === 'PLAYING' && gs === 'LOBBY') {
                         setStatus('LOBBY');
                         setRole(null);
                         setShowRestart(false);
                     }
                     
-                    // Sync Restart Button
                     if (role === 'HOST') {
                         const isGameOver = (gs === 'GAME_OVER');
                         if (isGameOver && !showRestart) setShowRestart(true);
@@ -833,20 +1150,14 @@
             // Game Loop
             const animate = useCallback(() => {
                 if (role === 'HOST') {
-                    // 1. Gather Inputs
                     if (myPeerId) inputsRef.current[myPeerId] = myInputRef.current;
-
-                    // 2. Run Physics
                     gameStateRef.current = updatePhysics(gameStateRef.current, inputsRef.current);
-
-                    // 3. Broadcast State
                     const stateSnapshot = gameStateRef.current;
                     connsRef.current.forEach(c => {
                         if (c.open) c.send({ type: 'GAME_UPDATE', state: stateSnapshot });
                     });
                 }
 
-                // 4. Render
                 if (canvasRef.current) {
                     const ctx = canvasRef.current.getContext('2d');
                     renderGame(ctx, gameStateRef.current, myPeerId);
@@ -870,10 +1181,10 @@
                     if (key === 's' || key === 'arrowdown' || code === 'KeyS') myInputRef.current.down = true;
                     if (key === 'a' || key === 'arrowleft' || code === 'KeyA') myInputRef.current.left = true;
                     if (key === 'd' || key === 'arrowright' || code === 'KeyD') myInputRef.current.right = true;
-                    if (key === ' ' || key === 'x') myInputRef.current.action = true; // Attack/Rescue
-                    if (key === 'e' || code === 'KeyE') myInputRef.current.ability = true; // Ability
+                    if (key === ' ' || key === 'x') myInputRef.current.action = true;
+                    if (key === 'e' || code === 'KeyE') myInputRef.current.ability = true;
+                    if (key === 'f' || code === 'KeyF') myInputRef.current.classAbility = true;
 
-                    // Send Input if Client
                     if (role === 'CLIENT' && connRef.current?.open) {
                         connRef.current.send({ type: 'INPUT', input: myInputRef.current });
                     }
@@ -888,6 +1199,7 @@
                     if (key === 'd' || key === 'arrowright' || code === 'KeyD') myInputRef.current.right = false;
                     if (key === ' ' || key === 'x') myInputRef.current.action = false;
                     if (key === 'e' || code === 'KeyE') myInputRef.current.ability = false;
+                    if (key === 'f' || code === 'KeyF') myInputRef.current.classAbility = false;
 
                     if (role === 'CLIENT' && connRef.current?.open) {
                         connRef.current.send({ type: 'INPUT', input: myInputRef.current });
@@ -926,11 +1238,7 @@
                         setPlayersList(data.players);
                     }
                     else if (data.type === 'GAME_START' || data.type === 'GAME_RESTART') {
-                        setStatus('ABILITY_SELECTION');
-                        // Select 3 randoms
-                        const all = Object.keys(ABILITIES_DATA);
-                        setOfferedAbilities(all.sort(() => 0.5 - Math.random()).slice(0, 3));
-                        gameStateRef.current = data.initialState; // Reset state
+                        gameStateRef.current = data.initialState; 
                     }
                     else if (data.type === 'GAME_UPDATE') {
                         gameStateRef.current = data.state;
@@ -940,7 +1248,6 @@
             };
 
             const startGame = () => {
-                // Initialize Game State
                 const initialPlayers = playersList.map((p, i) => ({
                     peerId: p.id,
                     name: p.name,
@@ -948,65 +1255,83 @@
                     x: CANVAS_WIDTH/2 + (i%2===0 ? 40 : -40),
                     y: CANVAS_HEIGHT/2 + (i>1 ? 40 : -40),
                     dirX: 1, dirY: 0,
+                    class: null,
+                    boneCount: 0,
                     selectedAbility: null,
                     abilityCooldown: 0,
+                    classAbilityCooldown: 0,
+                    barbarianPassiveReadyAt: 0,
                     isCaptured: false,
                     capturedBy: null,
                     isEliminated: false,
                     lastAttack: 0,
                     secondLifeUsed: false,
-                    invulnerableUntil: 0, // Initialize
-                    immobilizedUntil: 0 // Initialize
+                    invulnerableUntil: 0,
+                    immobilizedUntil: 0,
+                    fireShieldUntil: 0
                 }));
 
                 const newState = {
                     ...INITIAL_GAME_STATE,
                     players: initialPlayers,
-                    police: [], // Explicitly clear police
-                    projectiles: [], // Explicitly clear projectiles
-                    walls: [],  // Explicitly clear walls
-                    webs: [],   // Explicitly clear webs
-                    gameStatus: 'ABILITY_SELECTION'
+                    police: [],
+                    projectiles: [], 
+                    playerProjectiles: [], // Reset arrows
+                    walls: [], 
+                    webs: [], 
+                    bones: [],
+                    skeletons: [],
+                    gameStatus: 'CLASS_SELECTION'
                 };
 
                 gameStateRef.current = newState;
-                setStatus('ABILITY_SELECTION');
-                setShowRestart(false); // Ensure restart button gone
+                setStatus('CLASS_SELECTION');
+                setShowRestart(false); 
                 
-                // Select 3 randoms for Host
                 const all = Object.keys(ABILITIES_DATA);
                 setOfferedAbilities(all.sort(() => 0.5 - Math.random()).slice(0, 3));
 
-                // Notify Clients
                 connsRef.current.forEach(c => {
                     if (c.open) c.send({ type: 'GAME_START', initialState: newState });
                 });
             };
 
             const restartGame = () => {
-                 // Reuse existing players list, but reset their in-game state
                  startGame(); 
+            }
+            
+            const selectClass = (classKey) => {
+                if (role === 'HOST') {
+                    const p = gameStateRef.current.players.find(p => p.peerId === myPeerId);
+                    if (p) p.class = classKey;
+                    checkStartAbilities();
+                } else {
+                    connRef.current.send({ type: 'CLASS_SELECT', class: classKey });
+                }
+            };
+            
+            const checkStartAbilities = () => {
+                 const allSelected = gameStateRef.current.players.every(p => p.class);
+                 if (allSelected) {
+                     gameStateRef.current.gameStatus = 'ABILITY_SELECTION';
+                 }
             }
 
             const selectAbility = (abilityKey) => {
-                // Local update
                 if (role === 'HOST') {
                     const p = gameStateRef.current.players.find(p => p.peerId === myPeerId);
                     if (p) p.selectedAbility = abilityKey;
-                    
-                    // Check if all ready
                     checkStartGame();
                 } else {
                     connRef.current.send({ type: 'ABILITY_SELECT', ability: abilityKey });
                 }
             };
 
-            // Only Host runs this
             const checkStartGame = () => {
                 const allReady = gameStateRef.current.players.every(p => p.selectedAbility);
                 if (allReady) {
                     gameStateRef.current.gameStatus = 'COUNTDOWN';
-                    gameStateRef.current.startTime = Date.now(); // Start countdown timestamp
+                    gameStateRef.current.startTime = Date.now();
                 }
             };
             
@@ -1016,11 +1341,10 @@
                 ctx.fillStyle = '#1c1917';
                 ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                 
-                // Spawn Indicator (Pulsating)
+                // Spawn Indicator
                 if (state.gameStatus === 'PLAYING') {
                     const side = state.nextSpawnSide;
                     const now = Date.now();
-                    // Faster, brighter pulse: 0.4 to 0.8 opacity
                     const alpha = 0.4 + 0.4 * Math.sin(now / 200); 
                     const color = `rgba(239, 68, 68, ${alpha})`;
                     const transparent = `rgba(239, 68, 68, 0)`;
@@ -1028,8 +1352,6 @@
                     ctx.save();
                     let gradient;
                     
-                    // 0: Top, 1: Right, 2: Bottom, 3: Left
-                    // Draw gradient from edge inwards
                     if (side === 0) {
                         gradient = ctx.createLinearGradient(0, 0, 0, 60);
                         gradient.addColorStop(0, color);
@@ -1055,7 +1377,6 @@
                         ctx.fillStyle = gradient;
                         ctx.fillRect(0, 0, 60, CANVAS_HEIGHT);
                     }
-                    
                     ctx.restore();
                 }
 
@@ -1087,9 +1408,23 @@
                     ctx.fill();
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
                     ctx.stroke();
-                    // Cross
                     ctx.moveTo(w.x-WEB_RADIUS, w.y-WEB_RADIUS); ctx.lineTo(w.x+WEB_RADIUS, w.y+WEB_RADIUS);
                     ctx.moveTo(w.x+WEB_RADIUS, w.y-WEB_RADIUS); ctx.lineTo(w.x-WEB_RADIUS, w.y+WEB_RADIUS);
+                    ctx.stroke();
+                });
+                
+                // Bones
+                state.bones.forEach(b => {
+                    ctx.beginPath();
+                    ctx.arc(b.x, b.y, 5, 0, Math.PI*2);
+                    ctx.fillStyle = '#ecfccb'; // lime-100
+                    ctx.fill();
+                    ctx.strokeStyle = '#84cc16'; // lime-500
+                    ctx.stroke();
+                    // Visual "bone" shape
+                    ctx.beginPath();
+                    ctx.moveTo(b.x - 3, b.y - 3); ctx.lineTo(b.x + 3, b.y + 3);
+                    ctx.strokeStyle = '#000';
                     ctx.stroke();
                 });
 
@@ -1098,12 +1433,55 @@
                     state.projectiles.forEach(proj => {
                         ctx.beginPath();
                         ctx.arc(proj.x, proj.y, NET_PROJECTILE_RADIUS, 0, Math.PI*2);
-                        ctx.fillStyle = '#a855f7'; // Purple projectile
+                        ctx.fillStyle = '#a855f7'; 
                         ctx.fill();
                         ctx.strokeStyle = '#fff';
                         ctx.stroke();
                     });
                 }
+
+                // Projectiles (Arrows - Archer)
+                if (state.playerProjectiles) {
+                    state.playerProjectiles.forEach(arrow => {
+                        ctx.save();
+                        const angle = Math.atan2(arrow.vy, arrow.vx);
+                        ctx.translate(arrow.x, arrow.y);
+                        ctx.rotate(angle);
+                        
+                        // Arrow line
+                        ctx.beginPath();
+                        ctx.moveTo(-10, 0);
+                        ctx.lineTo(10, 0);
+                        ctx.strokeStyle = '#fb923c'; // Orange
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        
+                        // Arrow head
+                        ctx.beginPath();
+                        ctx.moveTo(10, 0);
+                        ctx.lineTo(5, -5);
+                        ctx.lineTo(5, 5);
+                        ctx.fillStyle = '#fff';
+                        ctx.fill();
+                        
+                        ctx.restore();
+                    });
+                }
+                
+                // Skeletons
+                state.skeletons.forEach(skel => {
+                    ctx.beginPath();
+                    ctx.arc(skel.x, skel.y, PLAYER_RADIUS - 4, 0, Math.PI * 2);
+                    ctx.fillStyle = '#e5e7eb';
+                    ctx.fill();
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.moveTo(skel.x-3, skel.y); ctx.lineTo(skel.x+3, skel.y);
+                    ctx.moveTo(skel.x-3, skel.y+3); ctx.lineTo(skel.x+3, skel.y+3);
+                    ctx.moveTo(skel.x-3, skel.y-3); ctx.lineTo(skel.x+3, skel.y-3);
+                    ctx.stroke();
+                });
 
                 // Players
                 state.players.forEach(p => {
@@ -1113,7 +1491,24 @@
                     const isInv = p.invisibleUntil && Date.now() < p.invisibleUntil;
                     const isInvuln = p.invulnerableUntil && Date.now() < p.invulnerableUntil;
                     const isImmobilized = p.immobilizedUntil && Date.now() < p.immobilizedUntil;
+                    const isShielded = p.fireShieldUntil && Date.now() < p.fireShieldUntil;
                     
+                    const pRadius = p.class === 'BARBARIAN' ? PLAYER_RADIUS * BARBARIAN_SCALE_MULT : PLAYER_RADIUS;
+
+                    // Frost Mage Passive Aura
+                    if (p.class === 'FROST_MAGE') {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, PLAYER_RADIUS * FROST_MAGE_PASSIVE_RADIUS_MULT, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(14, 165, 233, 0.05)'; // Very faint sky blue
+                        ctx.fill();
+                        ctx.strokeStyle = 'rgba(14, 165, 233, 0.2)';
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([5, 5]);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+
                     // Opacity if invisible
                     ctx.globalAlpha = (isInv && !isMe) ? 0 : (isInv && isMe ? 0.5 : 1);
 
@@ -1123,9 +1518,37 @@
                          ctx.strokeStyle = '#fbbf24'; // Amber-400
                          ctx.lineWidth = 3;
                          ctx.beginPath();
-                         ctx.arc(p.x, p.y, PLAYER_RADIUS + 5, 0, Math.PI*2);
+                         ctx.arc(p.x, p.y, pRadius + 5, 0, Math.PI*2);
                          ctx.stroke();
                          ctx.restore();
+                    }
+
+                    // Fire Shield (Fire Mage)
+                    if (isShielded) {
+                        ctx.save();
+                        const pulsation = Math.sin(Date.now() / 100) * 2;
+                        ctx.strokeStyle = '#dc2626'; 
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, pRadius + 5 + pulsation, 0, Math.PI*2);
+                        ctx.stroke();
+                        // Inner glow
+                        ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+                        ctx.fill();
+                        ctx.restore();
+                    }
+
+                    // Stomp Effect (Barbarian)
+                    if (p.class === 'BARBARIAN' && p.lastStompTime && Date.now() - p.lastStompTime < 300) {
+                        const progress = (Date.now() - p.lastStompTime) / 300;
+                        const radius = pRadius + (pRadius * BARBARIAN_STOMP_RADIUS_MULT * progress);
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${1 - progress})`;
+                        ctx.lineWidth = 5;
+                        ctx.stroke();
+                        ctx.restore();
                     }
 
                     // Immobilized Net Effect
@@ -1134,9 +1557,8 @@
                         ctx.strokeStyle = '#a855f7'; // Purple net
                         ctx.lineWidth = 2;
                         ctx.beginPath();
-                        ctx.arc(p.x, p.y, PLAYER_RADIUS + 3, 0, Math.PI*2);
+                        ctx.arc(p.x, p.y, pRadius + 3, 0, Math.PI*2);
                         ctx.stroke();
-                        // Grid pattern on player
                         ctx.beginPath();
                         ctx.moveTo(p.x - 10, p.y - 10); ctx.lineTo(p.x + 10, p.y + 10);
                         ctx.moveTo(p.x + 10, p.y - 10); ctx.lineTo(p.x - 10, p.y + 10);
@@ -1146,18 +1568,45 @@
 
                     // Body
                     ctx.beginPath();
-                    ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
+                    ctx.arc(p.x, p.y, pRadius, 0, Math.PI * 2);
                     ctx.fillStyle = p.color;
                     ctx.fill();
                     ctx.lineWidth = 2;
                     ctx.strokeStyle = isMe ? '#fff' : '#000';
                     ctx.stroke();
                     
+                    // Class Icon on player
+                    if (p.class === 'NECROMANCER') {
+                         ctx.fillStyle = '#000';
+                         ctx.font = '10px sans-serif';
+                         ctx.textAlign = 'center';
+                         ctx.fillText("☠", p.x, p.y + 4);
+                    }
+                    if (p.class === 'ARCHER') {
+                         ctx.fillStyle = '#000';
+                         ctx.font = '10px sans-serif';
+                         ctx.textAlign = 'center';
+                         ctx.fillText("🏹", p.x, p.y + 4);
+                    }
+                    if (p.class === 'FIRE_MAGE') {
+                         ctx.fillStyle = '#000';
+                         ctx.font = '10px sans-serif';
+                         ctx.textAlign = 'center';
+                         ctx.fillText("🔥", p.x, p.y + 4);
+                    }
+                    if (p.class === 'FROST_MAGE') {
+                         ctx.fillStyle = '#000';
+                         ctx.font = '10px sans-serif';
+                         ctx.textAlign = 'center';
+                         ctx.fillText("❄️", p.x, p.y + 4);
+                    }
+
                     // Attack Animation (Visual)
                     if (Date.now() - p.lastAttack < 150) {
                         ctx.beginPath();
                         const ang = Math.atan2(p.dirY, p.dirX);
-                        ctx.arc(p.x, p.y, ATTACK_RADIUS, ang - 0.8, ang + 0.8);
+                        const atkR = p.class === 'BARBARIAN' ? ATTACK_RADIUS * BARBARIAN_ATTACK_RANGE_MULT : ATTACK_RADIUS;
+                        ctx.arc(p.x, p.y, atkR, ang - 0.8, ang + 0.8);
                         ctx.strokeStyle = 'white';
                         ctx.lineWidth = 3;
                         ctx.stroke();
@@ -1167,16 +1616,16 @@
                     ctx.fillStyle = '#fff';
                     ctx.font = '12px Arial';
                     ctx.textAlign = 'center';
-                    ctx.fillText(p.name, p.x, p.y - 25);
+                    ctx.fillText(p.name, p.x, p.y - pRadius - 10);
 
                     // Status
                     if (p.isCaptured) {
                          ctx.fillStyle = '#ef4444';
-                         ctx.fillText("ARRESTED", p.x, p.y - 40);
+                         ctx.fillText("ARRESTED", p.x, p.y - pRadius - 25);
                     }
                     if (isImmobilized) {
                          ctx.fillStyle = '#a855f7';
-                         ctx.fillText("NET!", p.x, p.y - 40);
+                         ctx.fillText("NET!", p.x, p.y - pRadius - 25);
                     }
                     
                     ctx.globalAlpha = 1;
@@ -1187,29 +1636,30 @@
                     ctx.beginPath();
                     ctx.arc(cop.x, cop.y, POLICE_RADIUS, 0, Math.PI * 2);
                     
-                    // Color based on type
-                    if (cop.type === 'GUNNER') ctx.fillStyle = '#7c3aed'; // Dark purple for Gunner
-                    else ctx.fillStyle = '#3b82f6'; // Blue for Normal
+                    if (cop.type === 'GUNNER') ctx.fillStyle = '#7c3aed'; 
+                    else ctx.fillStyle = '#3b82f6'; 
                     
-                    if (cop.state === 'STUNNED') ctx.fillStyle = '#facc15'; // Yellow when stunned
-                    if (cop.state === 'ARRESTING') ctx.fillStyle = '#ef4444'; // Red when arresting
+                    // If heavily slowed by Frost Mage
+                    if (cop.majorSlowUntil && Date.now() < cop.majorSlowUntil) {
+                        ctx.fillStyle = '#67e8f9'; // Cyan Highlight
+                    }
+
+                    if (cop.state === 'STUNNED') ctx.fillStyle = '#facc15';
+                    if (cop.state === 'ARRESTING') ctx.fillStyle = '#ef4444';
                     
                     ctx.fill();
                     ctx.strokeStyle = '#1e3a8a';
                     ctx.lineWidth = 2;
                     ctx.stroke();
 
-                    // Hat (Visual)
                     ctx.fillStyle = '#1e3a8a';
                     ctx.fillRect(cop.x-10, cop.y-POLICE_RADIUS-5, 20, 10);
                     
-                    // Gunner visual distinctive mark
                     if (cop.type === 'GUNNER') {
                         ctx.fillStyle = '#000';
-                        ctx.fillRect(cop.x + 12, cop.y - 2, 10, 4); // Gun barrel sticking out right (simplified)
+                        ctx.fillRect(cop.x + 12, cop.y - 2, 10, 4); 
                     }
 
-                    // Status Text
                     if (cop.state === 'STUNNED') {
                         ctx.fillStyle = '#facc15';
                         ctx.font = '10px Arial';
@@ -1226,26 +1676,77 @@
                     const seconds = Math.floor(state.survivalTime % 60);
                     ctx.fillText(`TIME: ${minutes}:${seconds.toString().padStart(2, '0')}`, 20, 40);
 
-                    // Alive count
                     const alive = state.players.filter(p => !p.isEliminated).length;
                     ctx.textAlign = 'right';
                     ctx.fillText(`ALIVE: ${alive}/${state.players.length}`, CANVAS_WIDTH - 20, 40);
 
-                    // Cooldown (My HUD)
+                    // Cooldown & Class HUD (My HUD)
                     if (myId) {
                         const me = state.players.find(p => p.peerId === myId);
-                        if (me && me.selectedAbility) {
-                            const ab = ABILITIES_DATA[me.selectedAbility];
-                            const cdTime = Math.max(0, (me.abilityCooldown - Date.now())/1000).toFixed(1);
-                            
+                        if (me) {
                             ctx.textAlign = 'center';
-                            ctx.fillStyle = cdTime > 0 ? '#ef4444' : '#22c55e';
-                            ctx.font = '16px sans-serif';
-                            ctx.fillText(`${ab.name}: ${cdTime > 0 ? cdTime + 's' : 'READY'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 20);
                             
+                            // Ability CD
+                            if (me.selectedAbility) {
+                                const ab = ABILITIES_DATA[me.selectedAbility];
+                                const cdTime = Math.max(0, (me.abilityCooldown - Date.now())/1000).toFixed(1);
+                                ctx.fillStyle = cdTime > 0 ? '#ef4444' : '#22c55e';
+                                ctx.font = '16px sans-serif';
+                                ctx.fillText(`${ab.name}: ${cdTime > 0 ? cdTime + 's' : 'READY [E]'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 20);
+                            }
+
+                            // Class HUD
+                            if (me.class === 'NECROMANCER') {
+                                ctx.fillStyle = '#a3e635';
+                                ctx.font = 'bold 16px sans-serif';
+                                ctx.fillText(`BONES: ${me.boneCount || 0}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 45);
+                                
+                                if ((me.boneCount || 0) >= BONE_COST) {
+                                    ctx.fillStyle = '#fff';
+                                    ctx.font = '12px sans-serif';
+                                    ctx.fillText("PRESS [F] TO SUMMON", CANVAS_WIDTH/2, CANVAS_HEIGHT - 65);
+                                }
+                            } 
+                            else if (me.class === 'BARBARIAN') {
+                                const stompCD = Math.max(0, (me.classAbilityCooldown - Date.now())/1000).toFixed(1);
+                                ctx.fillStyle = stompCD > 0 ? '#ef4444' : '#f87171';
+                                ctx.font = 'bold 16px sans-serif';
+                                ctx.fillText(`STOMP: ${stompCD > 0 ? stompCD + 's' : 'READY [F]'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 45);
+
+                                const passiveCD = Math.max(0, (me.barbarianPassiveReadyAt - Date.now())/1000).toFixed(1);
+                                if (passiveCD > 0) {
+                                     ctx.font = '12px sans-serif';
+                                     ctx.fillStyle = '#9ca3af';
+                                     ctx.fillText(`Auto-Break: ${passiveCD}s`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 65);
+                                } else {
+                                     ctx.font = '12px sans-serif';
+                                     ctx.fillStyle = '#22c55e';
+                                     ctx.fillText(`Auto-Break: READY`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 65);
+                                }
+                            }
+                            else if (me.class === 'ARCHER') {
+                                const shotCD = Math.max(0, (me.classAbilityCooldown - Date.now())/1000).toFixed(1);
+                                ctx.fillStyle = shotCD > 0 ? '#ef4444' : '#fb923c';
+                                ctx.font = 'bold 16px sans-serif';
+                                ctx.fillText(`SHOT: ${shotCD > 0 ? shotCD + 's' : 'READY [F]'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 45);
+                            }
+                            else if (me.class === 'FIRE_MAGE') {
+                                const shieldCD = Math.max(0, (me.classAbilityCooldown - Date.now())/1000).toFixed(1);
+                                ctx.fillStyle = shieldCD > 0 ? '#ef4444' : '#dc2626';
+                                ctx.font = 'bold 16px sans-serif';
+                                ctx.fillText(`SHIELD: ${shieldCD > 0 ? shieldCD + 's' : 'READY [F]'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 45);
+                            }
+                            else if (me.class === 'FROST_MAGE') {
+                                const blizzardCD = Math.max(0, (me.classAbilityCooldown - Date.now())/1000).toFixed(1);
+                                ctx.fillStyle = blizzardCD > 0 ? '#ef4444' : '#0ea5e9';
+                                ctx.font = 'bold 16px sans-serif';
+                                ctx.fillText(`BLIZZARD: ${blizzardCD > 0 ? blizzardCD + 's' : 'READY [F]'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 45);
+                            }
+
                             if (me.immobilizedUntil && Date.now() < me.immobilizedUntil) {
                                 ctx.fillStyle = '#a855f7';
-                                ctx.fillText("IMMOBILIZED!", CANVAS_WIDTH/2, CANVAS_HEIGHT - 50);
+                                ctx.font = 'bold 18px sans-serif';
+                                ctx.fillText("IMMOBILIZED!", CANVAS_WIDTH/2, CANVAS_HEIGHT - 85);
                             }
                         }
                     }
@@ -1303,7 +1804,7 @@
 
                                 <div>
                                     <label className="block text-stone-400 text-sm mb-2">Color</label>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-2 flex-wrap">
                                         {Object.values(PlayerColor).map(c => (
                                             <div 
                                                 key={c}
@@ -1393,12 +1894,41 @@
                             </div>
                         </div>
                     )}
+                    
+                    {/* CLASS SELECTION */}
+                    {status === 'CLASS_SELECTION' && (
+                        <div className="fixed inset-0 bg-stone-900/95 z-30 flex flex-col items-center justify-center p-8">
+                            <h2 className="text-3xl text-white font-bold mb-2">Select Your Class</h2>
+                            <p className="text-stone-400 mb-8">Choose your role in the escape.</p>
+                            
+                            <div className="flex gap-6 justify-center flex-wrap">
+                                {Object.keys(CLASSES_DATA).map(key => {
+                                    // Check if I have selected this
+                                    const me = gameStateRef.current.players.find(p => p.peerId === myPeerId);
+                                    const selected = me && me.class === key;
+                                    
+                                    return (
+                                        <ClassCard 
+                                            key={key}
+                                            id={key}
+                                            data={CLASSES_DATA[key]}
+                                            selected={selected}
+                                            onSelect={selectClass}
+                                        />
+                                    );
+                                })}
+                            </div>
+                             <div className="mt-8 text-stone-500 flex items-center gap-2">
+                                <Loader2 className="animate-spin"/> Waiting for everyone to choose...
+                            </div>
+                        </div>
+                    )}
 
                     {/* ABILITY SELECTION */}
                     {status === 'ABILITY_SELECTION' && (
-                        <div className="fixed inset-0 bg-stone-900/90 z-30 flex flex-col items-center justify-center p-8">
-                            <h2 className="text-3xl text-white font-bold mb-2">Choose Your Loadout</h2>
-                            <p className="text-stone-400 mb-8">Every second counts. Pick a specialization.</p>
+                        <div className="fixed inset-0 bg-stone-900/95 z-30 flex flex-col items-center justify-center p-8">
+                            <h2 className="text-3xl text-white font-bold mb-2">Choose Ability</h2>
+                            <p className="text-stone-400 mb-8">Finalize your loadout.</p>
                             
                             <div className="grid grid-cols-3 gap-6 w-full max-w-3xl">
                                 {offeredAbilities.map(key => {
@@ -1446,9 +1976,9 @@
                     />
                     
                     {/* CONTROLS HINT */}
-                    {(status === 'PLAYING' || status === 'ABILITY_SELECTION') && (
+                    {(status === 'PLAYING') && (
                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-stone-500 text-xs font-mono bg-stone-900/80 px-4 py-1 rounded border border-stone-800 pointer-events-none z-40">
-                            [WASD] Move • [SPACE] Rescue/Attack • [E] Ability
+                            [WASD] Move • [SPACE] Rescue/Attack • [E] Ability • [F] Class Skill
                          </div>
                     )}
                 </div>
