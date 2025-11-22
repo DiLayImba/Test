@@ -76,6 +76,14 @@
         const STUN_DURATION = 5000;
         const DASH_DISTANCE = PLAYER_RADIUS * 2 * 5;
 
+        // Net Gunner Config
+        const GUNNER_SPAWN_CHANCE = 0.3; // 20% chance to spawn WITH a normal cop
+        const NET_COOLDOWN = 12000;
+        const NET_PROJECTILE_SPEED = PLAYER_SPEED * 2.0;
+        const NET_STUN_DURATION = 2000;
+        const NET_PROJECTILE_RADIUS = 6;
+        const GUNNER_SHOOT_RANGE = 180; // 6 * Player Diameter (roughly 30*4)
+
         const PlayerColor = {
             GREEN: '#22c55e',
             PINK: '#ec4899',
@@ -89,7 +97,7 @@
             FREEZE: { name: 'Freeze', desc: 'Stun all police for 2.5s.', cd: 30000, icon: Snowflake },
             WALL: { name: 'Barricade', desc: 'Drop a solid wall behind you.', cd: 20000, icon: Shield },
             WEB: { name: 'Spider Web', desc: 'Drop a slowing web.', cd: 10000, icon: Bug },
-            SPEED: { name: 'Adrenaline', desc: 'Double speed for 4s.', cd: 45000, icon: HeartPulse },
+            SPEED: { name: 'Adrenaline', desc: 'Double speed for 4s.', cd: 24000, icon: HeartPulse },
             SECOND_LIFE: { name: 'Second Chance', desc: 'Respawn once automatically.', cd: 0, passive: true, icon: RotateCcw },
             SHOCKER: { name: 'Shocker', desc: 'Break free from arrest instantly.', cd: 30000, icon: Zap },
         };
@@ -97,6 +105,7 @@
         const INITIAL_GAME_STATE = {
             players: [],
             police: [],
+            projectiles: [],
             walls: [],
             webs: [],
             gameStatus: 'LOBBY', // LOBBY, ABILITY_SELECTION, COUNTDOWN, PLAYING, GAME_OVER
@@ -196,6 +205,12 @@
             // 1. Update Players
             newState.players = newState.players.map(player => {
                 if (player.isEliminated) return player;
+
+                // Immobilized Check
+                if (player.immobilizedUntil && now < player.immobilizedUntil) {
+                     // Can't move or use abilities
+                     return player;
+                }
 
                 const input = inputs[player.peerId];
                 if (!input) return player;
@@ -340,6 +355,8 @@
                                 if (victim) {
                                     victim.isCaptured = false;
                                     victim.capturedBy = null;
+                                    // Grant Invulnerability for 2s
+                                    victim.invulnerableUntil = now + 2000;
                                 }
                                 cop.draggingPlayerId = null;
                             }
@@ -372,26 +389,76 @@
                 }
             }
 
-            // 3. Spawn Police
+            // 3. Projectiles (Nets) Logic
+            newState.projectiles = newState.projectiles.filter(proj => {
+                // Move
+                proj.x += proj.vx;
+                proj.y += proj.vy;
+
+                // Check bounds
+                if (proj.x < -50 || proj.x > CANVAS_WIDTH + 50 || proj.y < -50 || proj.y > CANVAS_HEIGHT + 50) {
+                    return false;
+                }
+
+                // Check Collision with Players
+                let hit = false;
+                newState.players.forEach(p => {
+                    if (!p.isEliminated && !p.isCaptured && !hit) {
+                         // Don't hit invulnerable or invisible or already immobilized
+                         const isInvuln = p.invulnerableUntil && now < p.invulnerableUntil;
+                         if (isInvuln) return;
+
+                         if (distance(proj.x, proj.y, p.x, p.y) < (PLAYER_RADIUS + NET_PROJECTILE_RADIUS)) {
+                             p.immobilizedUntil = now + NET_STUN_DURATION;
+                             hit = true;
+                         }
+                    }
+                });
+
+                return !hit; // Remove if hit
+            });
+
+
+            // 4. Spawn Police
             if (now - newState.lastSpawnTime > POLICE_SPAWN_RATE && newState.players.some(p => !p.isEliminated)) {
                 newState.lastSpawnTime = now;
                 const edge = newState.nextSpawnSide;
-                let px, py;
-                if (edge === 0) { px = Math.random() * CANVAS_WIDTH; py = -30; }
-                else if (edge === 1) { px = CANVAS_WIDTH + 30; py = Math.random() * CANVAS_HEIGHT; }
-                else if (edge === 2) { px = Math.random() * CANVAS_WIDTH; py = CANVAS_HEIGHT + 30; }
-                else { px = -30; py = Math.random() * CANVAS_HEIGHT; }
+                
+                // Helper to get spawn coord
+                const getSpawnCoord = (e) => {
+                     if (e === 0) return { x: Math.random() * CANVAS_WIDTH, y: -30 };
+                     else if (e === 1) return { x: CANVAS_WIDTH + 30, y: Math.random() * CANVAS_HEIGHT };
+                     else if (e === 2) return { x: Math.random() * CANVAS_WIDTH, y: CANVAS_HEIGHT + 30 };
+                     else return { x: -30, y: Math.random() * CANVAS_HEIGHT };
+                };
 
+                const pos = getSpawnCoord(edge);
                 newState.police.push({
                     id: `police-${now}`,
-                    x: px, y: py,
+                    type: 'NORMAL',
+                    x: pos.x, y: pos.y,
                     state: 'CHASING',
                     stunUntil: 0, arrestStartTime: 0, draggingPlayerId: null
                 });
+
+                // 20% Chance to Spawn Gunner WITH Normal cop
+                if (Math.random() < GUNNER_SPAWN_CHANCE) {
+                     const gunnerPos = getSpawnCoord(edge); // Same side
+                     newState.police.push({
+                        id: `police-gunner-${now}`,
+                        type: 'GUNNER',
+                        x: gunnerPos.x, y: gunnerPos.y,
+                        state: 'CHASING',
+                        stunUntil: 0, arrestStartTime: 0, draggingPlayerId: null,
+                        lastShot: 0, // Start READY (0 means it can shoot immediately)
+                        cooldownOffset: Math.random() * 3000 // Add up to 3s random variance to cooldowns
+                    });
+                }
+
                 newState.nextSpawnSide = Math.floor(Math.random() * 4);
             }
 
-            // 4. Update Police
+            // 5. Update Police
             const activePlayers = newState.players.filter(p => !p.isEliminated && !p.isCaptured);
             const visiblePlayers = activePlayers.filter(p => !p.invisibleUntil || now > p.invisibleUntil);
             
@@ -408,6 +475,37 @@
 
                 let speed = basePoliceSpeed;
                 if (newState.webs.some(w => distance(cop.x, cop.y, w.x, w.y) < WEB_RADIUS)) speed *= 0.2;
+
+                // Gunner Shooting Logic
+                if (cop.type === 'GUNNER' && cop.state === 'CHASING') {
+                    const effectiveCooldown = NET_COOLDOWN + (cop.cooldownOffset || 0);
+                    
+                    if (now - cop.lastShot > effectiveCooldown) {
+                        // Find nearest target
+                        let nearest = null;
+                        let minD = Infinity;
+                        visiblePlayers.forEach(p => {
+                            // Don't shoot invulnerable players
+                            if (p.invulnerableUntil && now < p.invulnerableUntil) return;
+                            
+                            const d = distance(cop.x, cop.y, p.x, p.y);
+                            if (d < minD) { minD = d; nearest = p; }
+                        });
+
+                        // Only shoot if in range
+                        if (nearest && minD <= GUNNER_SHOOT_RANGE) {
+                            // Shoot
+                            cop.lastShot = now;
+                            const ang = Math.atan2(nearest.y - cop.y, nearest.x - cop.x);
+                            newState.projectiles.push({
+                                x: cop.x,
+                                y: cop.y,
+                                vx: Math.cos(ang) * NET_PROJECTILE_SPEED,
+                                vy: Math.sin(ang) * NET_PROJECTILE_SPEED
+                            });
+                        }
+                    }
+                }
 
                 let vx = 0, vy = 0;
 
@@ -430,7 +528,7 @@
                     return cop; // No movement during arrest animation
                 }
                 else if (cop.state === 'DRAGGING') {
-                    // Drag to nearest edge
+                    // Drag to nearest edge with OBSTACLE AVOIDANCE
                     const distTop = cop.y;
                     const distBottom = CANVAS_HEIGHT - cop.y;
                     const distLeft = cop.x;
@@ -438,10 +536,50 @@
                     const minDist = Math.min(distTop, distBottom, distLeft, distRight);
                     speed *= 0.6; // Slower when dragging
 
-                    if (minDist === distTop) vy = -speed;
-                    else if (minDist === distBottom) vy = speed;
-                    else if (minDist === distLeft) vx = -speed;
-                    else vx = speed;
+                    // 1. Determine Goal Velocity
+                    let targetVx = 0;
+                    let targetVy = 0;
+
+                    if (minDist === distTop) targetVy = -speed;
+                    else if (minDist === distBottom) targetVy = speed;
+                    else if (minDist === distLeft) targetVx = -speed;
+                    else targetVx = speed;
+
+                    // 2. Obstacle Avoidance Lookahead
+                    const lookAheadDist = POLICE_RADIUS + 15; 
+                    let blocked = false;
+                    let wallCenter = { x: 0, y: 0 };
+
+                    for (const w of newState.walls) {
+                        const testCircle = {
+                            x: cop.x + (targetVx !== 0 ? Math.sign(targetVx) * lookAheadDist : 0),
+                            y: cop.y + (targetVy !== 0 ? Math.sign(targetVy) * lookAheadDist : 0),
+                            r: POLICE_RADIUS
+                        };
+                        
+                        if (rectCircleColliding(testCircle, w)) {
+                            blocked = true;
+                            wallCenter = { x: w.x + w.w/2, y: w.y + w.h/2 };
+                            break;
+                        }
+                    }
+
+                    if (blocked) {
+                        // If blocked Vertical, go Horizontal
+                        if (targetVy !== 0) {
+                            targetVy = 0;
+                            // Move towards side closer to cop to clear wall
+                            targetVx = (cop.x < wallCenter.x) ? -speed : speed;
+                        }
+                        // If blocked Horizontal, go Vertical
+                        else if (targetVx !== 0) {
+                            targetVx = 0;
+                            targetVy = (cop.y < wallCenter.y) ? -speed : speed;
+                        }
+                    }
+
+                    vx = targetVx;
+                    vy = targetVy;
 
                     if (cop.draggingPlayerId) {
                         const vIdx = newState.players.findIndex(p => p.peerId === cop.draggingPlayerId);
@@ -475,6 +613,9 @@
                     let nearest = null;
                     let minD = Infinity;
                     visiblePlayers.forEach(p => {
+                        // Check Invulnerability
+                        if (p.invulnerableUntil && now < p.invulnerableUntil) return;
+
                         const d = distance(cop.x, cop.y, p.x, p.y);
                         if (d < minD) { minD = d; nearest = p; }
                     });
@@ -526,7 +667,7 @@
                 return { ...cop, x: nextX, y: nextY };
             });
 
-            // 5. Police Separation (Prevent stacking)
+            // 6. Police Separation (Prevent stacking)
             for(let iter=0; iter<2; iter++) {
                 for (let i = 0; i < newState.police.length; i++) {
                     for (let j = i + 1; j < newState.police.length; j++) {
@@ -813,13 +954,16 @@
                     capturedBy: null,
                     isEliminated: false,
                     lastAttack: 0,
-                    secondLifeUsed: false
+                    secondLifeUsed: false,
+                    invulnerableUntil: 0, // Initialize
+                    immobilizedUntil: 0 // Initialize
                 }));
 
                 const newState = {
                     ...INITIAL_GAME_STATE,
                     players: initialPlayers,
                     police: [], // Explicitly clear police
+                    projectiles: [], // Explicitly clear projectiles
                     walls: [],  // Explicitly clear walls
                     webs: [],   // Explicitly clear webs
                     gameStatus: 'ABILITY_SELECTION'
@@ -949,15 +1093,56 @@
                     ctx.stroke();
                 });
 
+                // Projectiles (Nets)
+                if (state.projectiles) {
+                    state.projectiles.forEach(proj => {
+                        ctx.beginPath();
+                        ctx.arc(proj.x, proj.y, NET_PROJECTILE_RADIUS, 0, Math.PI*2);
+                        ctx.fillStyle = '#a855f7'; // Purple projectile
+                        ctx.fill();
+                        ctx.strokeStyle = '#fff';
+                        ctx.stroke();
+                    });
+                }
+
                 // Players
                 state.players.forEach(p => {
                     if (p.isEliminated) return;
 
                     const isMe = p.peerId === myId;
                     const isInv = p.invisibleUntil && Date.now() < p.invisibleUntil;
+                    const isInvuln = p.invulnerableUntil && Date.now() < p.invulnerableUntil;
+                    const isImmobilized = p.immobilizedUntil && Date.now() < p.immobilizedUntil;
                     
                     // Opacity if invisible
                     ctx.globalAlpha = (isInv && !isMe) ? 0 : (isInv && isMe ? 0.5 : 1);
+
+                    // Invulnerability Shield
+                    if (isInvuln) {
+                         ctx.save();
+                         ctx.strokeStyle = '#fbbf24'; // Amber-400
+                         ctx.lineWidth = 3;
+                         ctx.beginPath();
+                         ctx.arc(p.x, p.y, PLAYER_RADIUS + 5, 0, Math.PI*2);
+                         ctx.stroke();
+                         ctx.restore();
+                    }
+
+                    // Immobilized Net Effect
+                    if (isImmobilized) {
+                        ctx.save();
+                        ctx.strokeStyle = '#a855f7'; // Purple net
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, PLAYER_RADIUS + 3, 0, Math.PI*2);
+                        ctx.stroke();
+                        // Grid pattern on player
+                        ctx.beginPath();
+                        ctx.moveTo(p.x - 10, p.y - 10); ctx.lineTo(p.x + 10, p.y + 10);
+                        ctx.moveTo(p.x + 10, p.y - 10); ctx.lineTo(p.x - 10, p.y + 10);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
 
                     // Body
                     ctx.beginPath();
@@ -989,6 +1174,10 @@
                          ctx.fillStyle = '#ef4444';
                          ctx.fillText("ARRESTED", p.x, p.y - 40);
                     }
+                    if (isImmobilized) {
+                         ctx.fillStyle = '#a855f7';
+                         ctx.fillText("NET!", p.x, p.y - 40);
+                    }
                     
                     ctx.globalAlpha = 1;
                 });
@@ -997,9 +1186,14 @@
                 state.police.forEach(cop => {
                     ctx.beginPath();
                     ctx.arc(cop.x, cop.y, POLICE_RADIUS, 0, Math.PI * 2);
-                    ctx.fillStyle = '#3b82f6';
+                    
+                    // Color based on type
+                    if (cop.type === 'GUNNER') ctx.fillStyle = '#7c3aed'; // Dark purple for Gunner
+                    else ctx.fillStyle = '#3b82f6'; // Blue for Normal
+                    
                     if (cop.state === 'STUNNED') ctx.fillStyle = '#facc15'; // Yellow when stunned
                     if (cop.state === 'ARRESTING') ctx.fillStyle = '#ef4444'; // Red when arresting
+                    
                     ctx.fill();
                     ctx.strokeStyle = '#1e3a8a';
                     ctx.lineWidth = 2;
@@ -1008,6 +1202,12 @@
                     // Hat (Visual)
                     ctx.fillStyle = '#1e3a8a';
                     ctx.fillRect(cop.x-10, cop.y-POLICE_RADIUS-5, 20, 10);
+                    
+                    // Gunner visual distinctive mark
+                    if (cop.type === 'GUNNER') {
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(cop.x + 12, cop.y - 2, 10, 4); // Gun barrel sticking out right (simplified)
+                    }
 
                     // Status Text
                     if (cop.state === 'STUNNED') {
@@ -1042,6 +1242,11 @@
                             ctx.fillStyle = cdTime > 0 ? '#ef4444' : '#22c55e';
                             ctx.font = '16px sans-serif';
                             ctx.fillText(`${ab.name}: ${cdTime > 0 ? cdTime + 's' : 'READY'}`, CANVAS_WIDTH/2, CANVAS_HEIGHT - 20);
+                            
+                            if (me.immobilizedUntil && Date.now() < me.immobilizedUntil) {
+                                ctx.fillStyle = '#a855f7';
+                                ctx.fillText("IMMOBILIZED!", CANVAS_WIDTH/2, CANVAS_HEIGHT - 50);
+                            }
                         }
                     }
                 }
